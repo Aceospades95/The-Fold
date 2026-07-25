@@ -1,0 +1,11 @@
+services:
+  the-fold:
+    build: .
+    # Or, once the GitHub Action has published an image:
+    # image: ghcr.io/aceospades95/the-fold:latest
+    container_name: the-fold
+    ports:
+      - '8484:8484'
+    volumes:
+      - ./data:/data
+    restart: unless-stopped

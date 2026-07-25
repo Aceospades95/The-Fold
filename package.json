@@ -1,0 +1,22 @@
+{
+  "name": "the-fold",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Fold — a self-hosted home base for two: shared budgets, split expenses, trips, and lists.",
+  "workspaces": [
+    "shared",
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w web",
+    "start": "npm run start -w server",
+    "seed": "npm run seed -w server",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web"
+  },
+  "engines": {
+    "node": ">=22.5"
+  }
+}

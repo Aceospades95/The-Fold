@@ -14,9 +14,13 @@
     "build": "npm run build -w web",
     "start": "npm run start -w server",
     "seed": "npm run seed -w server",
+    "test": "vitest run",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w web"
   },
   "engines": {
     "node": ">=22.5"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
   }
 }

@@ -226,6 +226,66 @@ item(wishlist, 'Espresso machine', { amount: 65000, url: 'https://example.com/es
 item(wishlist, 'Weekend in Portland', { amount: 80000 })
 item(wishlist, 'Standing desk for the office', { amount: 45000 })
 
+const insertAccount = db.prepare(
+  'INSERT INTO accounts (id, household_id, name, type, owner_user_id, sort, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+)
+const insertSnapshot = db.prepare(
+  'INSERT INTO account_snapshots (id, account_id, date, balance_cents) VALUES (?, ?, ?, ?)',
+)
+function account(name: string, type: string, owner: string | null, sortIndex: number, balances: [string, number][]): void {
+  const accountId = id()
+  insertAccount.run(accountId, hhId, name, type, owner, sortIndex, now())
+  for (const [date, balance] of balances) {
+    insertSnapshot.run(id(), accountId, date, balance)
+  }
+}
+const monthsBack = (n: number) => {
+  const d = new Date()
+  d.setUTCMonth(d.getUTCMonth() - n)
+  return d.toISOString().slice(0, 8) + '15'
+}
+account('Joint checking', 'checking', null, 0, [
+  [monthsBack(3), 412000], [monthsBack(2), 434500], [monthsBack(1), 401200], [monthsBack(0), 468900],
+])
+account('Emergency fund', 'savings', null, 1, [
+  [monthsBack(3), 1150000], [monthsBack(2), 1200000], [monthsBack(1), 1250000], [monthsBack(0), 1300000],
+])
+account('Jake — 401(k)', 'retirement', jake, 2, [
+  [monthsBack(3), 4820000], [monthsBack(2), 4975000], [monthsBack(1), 4890000], [monthsBack(0), 5120000],
+])
+account('Sam — Roth IRA', 'retirement', sam, 3, [
+  [monthsBack(3), 2210000], [monthsBack(2), 2280000], [monthsBack(1), 2265000], [monthsBack(0), 2350000],
+])
+account('Brokerage (joint)', 'investment', null, 4, [
+  [monthsBack(3), 1560000], [monthsBack(2), 1625000], [monthsBack(1), 1580000], [monthsBack(0), 1710000],
+])
+account('Visa — shared card', 'credit', null, 5, [
+  [monthsBack(3), 184300], [monthsBack(2), 158900], [monthsBack(1), 210500], [monthsBack(0), 96200],
+])
+account('Car loan', 'loan', null, 6, [
+  [monthsBack(3), 1420000], [monthsBack(2), 1385000], [monthsBack(1), 1350000], [monthsBack(0), 1315000],
+])
+
+const insertRecurring = db.prepare(
+  `INSERT INTO recurring_transactions (id, household_id, description, amount_cents, category_id, payer_user_id, splits, cadence, day_of_month, next_date, active, notes, created_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+)
+const nextMonthFirst = (() => {
+  const d = new Date()
+  d.setUTCMonth(d.getUTCMonth() + 1, 1)
+  return d.toISOString().slice(0, 10)
+})()
+insertRecurring.run(
+  id(), hhId, 'Rent', 210000, cat['Rent / Mortgage'], jake,
+  JSON.stringify([{ user_id: jake, share_cents: 118000 }, { user_id: sam, share_cents: 92000 }]),
+  'monthly', 1, nextMonthFirst, 'Auto-posts on the 1st', now(),
+)
+insertRecurring.run(
+  id(), hhId, 'Internet', 8000, cat['Utilities'], jake,
+  JSON.stringify([{ user_id: jake, share_cents: 4000 }, { user_id: sam, share_cents: 4000 }]),
+  'monthly', 11, nextMonthFirst.slice(0, 8) + '11', null, now(),
+)
+
 console.log('Seeded demo household:')
 console.log('  jake@example.com / thefold')
 console.log('  sam@example.com  / thefold')

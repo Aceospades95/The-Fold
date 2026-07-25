@@ -16,10 +16,11 @@ Phased so every stage ships something you two actually use, and the spine (house
 
 ## Phase 1 — Make the money real
 
-- [ ] CSV/OFX import with a review-and-match screen (category + split per row).
+- [x] CSV import with a review-and-match screen (category + split per row, duplicate detection).
+- [x] Auto-rules ("Costco → Groceries, 50/50") applied at import.
+- [x] Recurring transactions (rent, subscriptions) that post themselves each month/year with catch-up.
+- [ ] OFX/QFX import alongside CSV.
 - [ ] SimpleFIN Bridge sync: accounts, balances, transactions on a schedule.
-- [ ] Auto-rules ("Costco → Groceries, 50/50") applied at import.
-- [ ] Recurring transactions (rent, subscriptions) that pre-fill each month.
 - [ ] Monthly close: rollover options per category, month-in-review page.
 - [ ] Settings encryption for stored credentials; rate limiting; cookie `Secure` when behind HTTPS.
 
@@ -32,24 +33,25 @@ Phased so every stage ships something you two actually use, and the spine (house
 
 ## Phase 3 — Investments & net worth
 
-- [ ] Manual accounts (checking, savings, brokerage, retirement, property, debts) with balance snapshots.
-- [ ] Net-worth timeline for the household; per-person and combined views.
+- [x] Manual accounts (checking, savings, brokerage, retirement, property, debts) with balance snapshots.
+- [x] Net-worth timeline for the household with joint and per-person accounts.
 - [ ] SimpleFIN balance auto-snapshots where available; optional ticker prices for holdings.
+- [ ] Per-person net worth breakdown view.
 
 ## Phase 4 — The conductor (home & fun)
 
-- [ ] Home Assistant: outbound webhooks on events, scoped inbound token for lists/chores.
+- [x] Home Assistant: outbound webhooks on events (chores due, trip countdown, budget overruns) + scoped inbound tokens for lists/chores/summary.
 - [ ] Tandoor: recipe picker, ingredients → grocery list.
 - [ ] Overseerr/Plex: request + "start movie night" via HA scene.
 - [ ] Date-night flow tying the above together; Shy Local idea exchange (small JSON contract).
 
 ## Phase 5 — Polish & quality of life
 
-- [ ] PWA (installable on phones, offline grocery list).
+- [x] PWA manifest (installable on phones); offline grocery list still to come.
+- [x] Automated test suite around the money math and API (splits, contributions, balances, recurring, imports).
 - [ ] Attachments/receipts on transactions and trip expenses.
 - [ ] Reports: category trends, spending by person, trip cost retrospectives.
 - [ ] Data export (full JSON/CSV dump) and scheduled SQLite backups.
-- [ ] Automated test suite around the money math (splits, contributions, rollups) before Phase 1 lands.
 
 ## Non-goals (on purpose)
 

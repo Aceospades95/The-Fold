@@ -91,8 +91,100 @@ export interface Tx {
   category_id: string | null
   payer_user_id: string
   trip_expense_id: string | null
+  recurring_id: string | null
   notes: string | null
   splits: Split[]
+}
+
+export type RecurringCadence = 'monthly' | 'yearly'
+
+export interface RecurringTx {
+  id: string
+  description: string
+  amount_cents: number
+  category_id: string | null
+  payer_user_id: string
+  splits: Split[]
+  cadence: RecurringCadence
+  day_of_month: number
+  next_date: string
+  active: 0 | 1
+  notes: string | null
+}
+
+export type AccountType =
+  | 'checking'
+  | 'savings'
+  | 'investment'
+  | 'retirement'
+  | 'property'
+  | 'vehicle'
+  | 'credit'
+  | 'loan'
+  | 'other'
+
+export const LIABILITY_TYPES: AccountType[] = ['credit', 'loan']
+
+export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
+  checking: 'Checking',
+  savings: 'Savings',
+  investment: 'Investments',
+  retirement: 'Retirement',
+  property: 'Property',
+  vehicle: 'Vehicle',
+  credit: 'Credit card',
+  loan: 'Loan',
+  other: 'Other',
+}
+
+export interface AccountRow {
+  id: string
+  name: string
+  type: AccountType
+  owner_user_id: string | null
+  archived: 0 | 1
+  sort: number
+  balance_cents: number
+  balance_date: string | null
+}
+
+export interface NetWorthPoint {
+  month: string
+  assets_cents: number
+  liabilities_cents: number
+  net_cents: number
+}
+
+export interface NetWorthResponse {
+  accounts: AccountRow[]
+  history: NetWorthPoint[]
+  assets_cents: number
+  liabilities_cents: number
+  net_cents: number
+  delta_month_cents: number | null
+}
+
+export interface ImportRule {
+  id: string
+  match_text: string
+  category_id: string | null
+  split_mode: 'none' | 'equal' | 'income' | 'owed'
+}
+
+export interface HaConfig {
+  url: string | null
+  events: {
+    item_due: boolean
+    trip_countdown: boolean
+    budget_over: boolean
+  }
+}
+
+export interface ApiTokenInfo {
+  id: string
+  name: string
+  created_at: string
+  last_used_at: string | null
 }
 
 export interface BalanceEntry {
@@ -212,4 +304,5 @@ export interface SummaryResponse {
   next_trip: (TripListItem & { days_until: number | null }) | null
   my_tasks: { id: string; list_id: string; list_name: string; text: string; due_date: string | null }[]
   recent_transactions: Tx[]
+  net_worth: { net_cents: number; delta_month_cents: number | null; account_count: number } | null
 }

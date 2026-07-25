@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import type { BalancesResponse, Tx } from '@fold/shared'
 import { getBalances, getTransactions } from '../lib/queries.js'
-import { badRequest, id, monthRange, notFound, now } from '../lib/util.js'
+import { insertTransactionRaw } from '../lib/tx.js'
+import { badRequest, id, monthRange, notFound } from '../lib/util.js'
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
@@ -56,44 +57,9 @@ function validateTxParticipants(
 export function insertTransaction(
   app: FastifyInstance,
   householdId: string,
-  input: {
-    kind: 'expense' | 'settlement'
-    date: string
-    description: string
-    amount_cents: number
-    category_id?: string | null
-    payer_user_id: string
-    trip_expense_id?: string | null
-    notes?: string | null
-    splits: { user_id: string; share_cents: number }[]
-  },
+  input: Parameters<typeof insertTransactionRaw>[2],
 ): string {
-  const txId = id()
-  app.db
-    .prepare(
-      `INSERT INTO transactions (id, household_id, kind, date, description, amount_cents, category_id, payer_user_id, trip_expense_id, notes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      txId,
-      householdId,
-      input.kind,
-      input.date,
-      input.description,
-      input.amount_cents,
-      input.category_id ?? null,
-      input.payer_user_id,
-      input.trip_expense_id ?? null,
-      input.notes ?? null,
-      now(),
-    )
-  const insertSplit = app.db.prepare(
-    'INSERT INTO transaction_splits (id, transaction_id, user_id, share_cents) VALUES (?, ?, ?, ?)',
-  )
-  for (const split of input.splits) {
-    insertSplit.run(id(), txId, split.user_id, split.share_cents)
-  }
-  return txId
+  return insertTransactionRaw(app.db, householdId, input)
 }
 
 export async function transactionRoutes(app: FastifyInstance): Promise<void> {

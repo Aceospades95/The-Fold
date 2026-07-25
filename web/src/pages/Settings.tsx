@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { IncomeSource, SplitRule } from '@fold/shared'
+import type { ApiTokenInfo, HaConfig, IncomeSource, SplitRule } from '@fold/shared'
 import { CADENCES, monthlyCents } from '@fold/shared'
 import { Check, Copy, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { api, useApi } from '../api'
@@ -112,15 +112,158 @@ function AddPartnerCard({ onAdded }: { onAdded: () => void }) {
 
 const INTEGRATIONS: { name: string; emoji: string; status: 'live' | 'planned'; blurb: string }[] = [
   { name: 'Google Calendar (feed)', emoji: '📅', status: 'live', blurb: 'Subscribe to the calendar feed below — trips, stops, and due dates show up automatically.' },
+  { name: 'CSV statement import', emoji: '🧾', status: 'live', blurb: 'Import bank/card exports on the Spending page — with auto-rules and duplicate detection.' },
+  { name: 'Net worth tracking', emoji: '📈', status: 'live', blurb: 'Accounts, investments, and debts with balance history — see the Net worth page.' },
   { name: 'Google Calendar & Tasks (two-way)', emoji: '🔁', status: 'planned', blurb: 'OAuth per person: create real events on a shared calendar, sync assigned to-dos to Google Tasks.' },
   { name: 'Email reminders', emoji: '📬', status: 'planned', blurb: 'Digest + nudges from your own Gmail or a dedicated app account via SMTP.' },
-  { name: 'Bank sync (SimpleFIN / Plaid)', emoji: '🏦', status: 'planned', blurb: 'Pull real transactions from your banks and match them to budget categories.' },
-  { name: 'Investments & net worth', emoji: '📈', status: 'planned', blurb: 'Track accounts and holdings Mint-style, with a household net-worth view.' },
-  { name: 'Home Assistant', emoji: '🏡', status: 'planned', blurb: 'Webhooks both ways — start a “date night” scene, log chores from dashboards.' },
+  { name: 'Bank sync (SimpleFIN / Plaid)', emoji: '🏦', status: 'planned', blurb: 'Pull real transactions from your banks automatically — CSV import covers the gap today.' },
   { name: 'Tandoor Recipes', emoji: '🍳', status: 'planned', blurb: 'Pick recipes for the week and push ingredients straight onto the grocery list.' },
   { name: 'Plex + Overseerr date night', emoji: '🎬', status: 'planned', blurb: 'Queue a movie, dim the lights, dinner from Tandoor — one button.' },
   { name: 'Shy Local', emoji: '💞', status: 'planned', blurb: 'Pull date ideas from your activity planner into the trip/date wishlist.' },
 ]
+
+function HomeAssistantCard() {
+  const { data, reload } = useApi<HaConfig>('/integrations/ha')
+  const [url, setUrl] = useState<string | null>(null)
+  const [note, setNote] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const shownUrl = url ?? data?.url ?? ''
+
+  async function save(events?: Partial<HaConfig['events']>): Promise<void> {
+    setError(null)
+    try {
+      await api.patch('/integrations/ha', { url: shownUrl.trim() || null, events })
+      setNote('Saved')
+      setTimeout(() => setNote(null), 2000)
+      reload()
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  async function test(): Promise<void> {
+    setError(null)
+    setNote(null)
+    try {
+      await api.post('/integrations/ha/test')
+      setNote('Webhook reached Home Assistant ✔')
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  const events = data?.events ?? { item_due: true, trip_countdown: true, budget_over: true }
+  const eventLabels: [keyof HaConfig['events'], string][] = [
+    ['item_due', 'Chores & to-dos due'],
+    ['trip_countdown', 'Trip countdown (7/3/1 days & departure)'],
+    ['budget_over', 'Budget category goes over'],
+  ]
+
+  return (
+    <Card>
+      <CardTitle>Home Assistant</CardTitle>
+      <p className="mb-3 text-sm text-slate-500">
+        In HA, add an <em>Automation → Trigger → Webhook</em> and paste its URL here (looks like{' '}
+        <code className="rounded bg-slate-100 px-1 text-xs">http://homeassistant.local:8123/api/webhook/…</code>). The
+        Fold POSTs JSON events; your automations decide what happens — lights, announcements, anything.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <TextInput
+          value={shownUrl}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="http://homeassistant.local:8123/api/webhook/the-fold"
+          className="min-w-64 flex-1"
+        />
+        <Button variant="secondary" onClick={() => void save()}>
+          {note === 'Saved' ? <Check size={14} /> : null} Save
+        </Button>
+        <Button variant="ghost" onClick={() => void test()} disabled={!data?.url}>
+          Send test
+        </Button>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5">
+        {eventLabels.map(([key, label]) => (
+          <label key={key} className="flex items-center gap-2 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              checked={events[key]}
+              onChange={(e) => void save({ [key]: e.target.checked })}
+              className="h-4 w-4 rounded border-slate-300 text-violet-600"
+            />
+            {label}
+          </label>
+        ))}
+      </div>
+      {note && note !== 'Saved' && <p className="mt-2 text-sm text-emerald-600">{note}</p>}
+      <ErrorNote message={error} />
+    </Card>
+  )
+}
+
+function ApiTokensCard() {
+  const { data, reload } = useApi<{ tokens: ApiTokenInfo[] }>('/integrations/tokens')
+  const [name, setName] = useState('')
+  const [freshToken, setFreshToken] = useState<string | null>(null)
+
+  async function create(): Promise<void> {
+    const result = await api.post<{ token: string }>('/integrations/tokens', { name: name.trim() })
+    setFreshToken(result.token)
+    setName('')
+    reload()
+  }
+
+  async function revoke(token: ApiTokenInfo): Promise<void> {
+    if (!confirm(`Revoke "${token.name}"? Anything using it stops working.`)) return
+    await api.delete(`/integrations/tokens/${token.id}`)
+    reload()
+  }
+
+  return (
+    <Card>
+      <CardTitle>API tokens</CardTitle>
+      <p className="mb-3 text-sm text-slate-500">
+        Long-lived tokens for Home Assistant, Siri/Google shortcuts, and scripts. They can add list items (
+        <code className="rounded bg-slate-100 px-1 text-xs">POST /api/hooks/list-items</code>), complete items, and read
+        a small summary — nothing else.
+      </p>
+      {freshToken && (
+        <div className="mb-3 rounded-xl bg-amber-50 p-3 text-sm">
+          <p className="font-medium text-amber-800">Copy this now — it won't be shown again:</p>
+          <code className="mt-1 block break-all rounded bg-white px-2 py-1 text-xs">{freshToken}</code>
+          <button onClick={() => setFreshToken(null)} className="mt-1 text-xs text-amber-700 hover:underline">
+            done
+          </button>
+        </div>
+      )}
+      {(data?.tokens ?? []).length > 0 && (
+        <ul className="mb-3 divide-y divide-slate-100">
+          {(data?.tokens ?? []).map((token) => (
+            <li key={token.id} className="flex items-center gap-2 py-2 text-sm">
+              <span className="flex-1 font-medium">{token.name}</span>
+              <span className="text-xs text-slate-400">
+                {token.last_used_at ? `last used ${token.last_used_at.slice(0, 10)}` : 'never used'}
+              </span>
+              <Button variant="ghost" onClick={() => void revoke(token)} className="!px-2 !py-1 text-xs text-red-500">
+                Revoke
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex gap-2">
+        <TextInput
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Home Assistant"
+          className="w-56"
+        />
+        <Button variant="secondary" onClick={() => void create()} disabled={!name.trim()}>
+          <Plus size={14} /> Create token
+        </Button>
+      </div>
+    </Card>
+  )
+}
 
 export default function Settings() {
   const { me, reloadMe } = useMe()
@@ -331,6 +474,9 @@ export default function Settings() {
           </Button>
         </div>
       </Card>
+
+      <HomeAssistantCard />
+      <ApiTokensCard />
 
       <Card>
         <CardTitle>Integrations</CardTitle>

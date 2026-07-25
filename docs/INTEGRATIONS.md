@@ -44,20 +44,26 @@ Real talk about pulling live financial data as a self-hoster in the US:
 | **SimpleFIN Bridge** | ~$1.50/mo | **Best first choice.** Built exactly for personal self-hosted apps: you connect your banks to SimpleFIN once, it hands The Fold a read-only access URL, the app polls transactions + balances (including investment account balances). No developer agreements, no OAuth dance per bank. Actual Budget & friends use this. |
 | **Plaid** | Free sandbox; production requires an approved developer account (pay-as-you-go) | The polished aggregator Mint used. Doable for personal use but you're signing up as a "company," and per-connection pricing adds up. Worth it later if SimpleFIN's coverage misses one of your institutions. |
 | **Teller** | Free tier (~100 accounts) | Good US coverage, developer-friendly; certificate-auth API. Solid alternate. |
-| **CSV/OFX import** | free | The always-works fallback; most banks export it. Ships alongside the first sync adapter. |
+| **CSV import** ✅ | free | **Live today** on the Spending page: column mapping, sign-convention handling, auto-rules, duplicate skipping. OFX support later. |
 
 **Design either way:** an `accounts` + `imported_transactions` staging table; a matching screen where imported rows become real transactions (pick category, pick split — or auto-rules like "Costco → Groceries, 50/50"). Imports never bypass the split engine, so who-owes-whom stays correct. Your manual entries and bank data reconcile instead of duplicating.
 
-## 📈 Investments & net worth 💡
+## 📈 Investments & net worth ✅ (manual) / 🔜 (auto)
 
-Manual-first, then automated: an `investment_accounts`/`holdings` model with balance snapshots gives you the Mint-style net-worth graph immediately (SimpleFIN already returns investment account balances). Optional later: price refresh for public tickers to break holdings out. Kept intentionally simple — this is "see our full picture," not a trading terminal.
+**Live today:** the Net worth page tracks accounts — checking, savings, brokerage, retirement, property, vehicles, credit cards, loans — joint or per-person, with dated balance snapshots and a household net-worth trend line. Updating a balance takes two seconds and builds the history.
 
-## 🏡 Home Assistant 🔜
+**Next:** SimpleFIN balance auto-snapshots (it returns investment account balances too) and optional ticker prices to break holdings out. Kept intentionally simple — this is "see our full picture," not a trading terminal.
 
-Two directions, both cheap because HA is great at webhooks:
+## 🏡 Home Assistant ✅
 
-- **The Fold → HA:** on events like "trip starts tomorrow" or "date night started", POST to an HA webhook trigger (`/api/webhook/<id>`). What the automation does — lighting scene, announcement on speakers, thermostat — is normal HA config.
-- **HA → The Fold:** a scoped API token so HA dashboards/automations can call e.g. `POST /api/lists/:id/items` ("add whatever ran out to Groceries" via a voice assistant) or complete a chore from a wall tablet button.
+Both directions are live:
+
+- **The Fold → HA (live):** Settings → Home Assistant. Paste an HA webhook-trigger URL (`http://homeassistant.local:8123/api/webhook/<id>`) and pick your events. The Fold POSTs JSON like `{"source":"the-fold","event":"trip_countdown","data":{"days_until":3,"trips":[…]}}` for: chores/to-dos due (`item_due`), trip countdowns at 7/3/1/0 days (`trip_countdown`), and budget categories crossing 100% (`budget_over`, fired once per category per month). A "Send test" button verifies the pipe; a daily in-server scheduler does the rest. What the automation does — lights, TTS announcements, dashboards — is normal HA config.
+- **HA → The Fold (live):** Settings → API tokens. Create a scoped bearer token, then from HA (or a Siri/Google shortcut, or curl):
+  - `POST /api/hooks/list-items` `{"list":"Groceries","text":"Oat milk"}` — add to any list by name
+  - `POST /api/hooks/complete-item` `{"text":"oat milk"}` — check off the first open match
+  - `GET /api/hooks/summary` — open item count, next trip, who-owes-whom
+  Tokens can do exactly that and nothing else — no budget or account access.
 
 ## 🎬 Date night: Plex + Overseerr + Tandoor (+ Shy Local) 💡
 

@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react'
-import type { BalancesResponse, Category, Tx } from '@fold/shared'
-import { ArrowLeftRight, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
+import type { BalancesResponse, Category, ImportRule, Tx } from '@fold/shared'
+import { ArrowLeftRight, ChevronLeft, ChevronRight, Plus, Repeat, Upload } from 'lucide-react'
 import { api, useApi } from '../api'
 import { useMe } from '../App'
 import { currentMonth, fmtDateFull, fmtMoney, fmtMonth, shiftMonth, todayStr } from '../format'
 import { Avatar, Button, Card, Chip, EmptyState, ErrorNote, Field, Modal, MoneyInput, TextInput } from '../ui'
+import ImportWizard from '../components/ImportWizard'
+import RecurringModal from '../components/RecurringModal'
 import TxModal from '../components/TxModal'
 
 function SettleModal({ balances, onClose, onSaved }: { balances: BalancesResponse; onClose: () => void; onSaved: () => void }) {
@@ -90,9 +92,13 @@ export default function Transactions() {
   const transactions = useApi<{ transactions: Tx[] }>(`/transactions?month=${month}`)
   const balances = useApi<BalancesResponse>('/balances')
   const categoriesQuery = useApi<{ categories: Category[] }>('/categories')
+  const rulesQuery = useApi<{ rules: ImportRule[] }>('/import-rules')
   const [editing, setEditing] = useState<Tx | null>(null)
   const [adding, setAdding] = useState(false)
   const [settling, setSettling] = useState(false)
+  const [managingRecurring, setManagingRecurring] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importNote, setImportNote] = useState<string | null>(null)
 
   const members = me.household.members
   const categories = categoriesQuery.data?.categories ?? []
@@ -124,7 +130,13 @@ export default function Transactions() {
           <h1 className="text-2xl font-bold">Spending</h1>
           <p className="text-sm text-slate-500">Every shared and personal expense, split your way.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => setImporting(true)}>
+            <Upload size={15} /> Import CSV
+          </Button>
+          <Button variant="secondary" onClick={() => setManagingRecurring(true)}>
+            <Repeat size={15} /> Recurring
+          </Button>
           <Button variant="secondary" onClick={() => setSettling(true)}>
             <ArrowLeftRight size={15} /> Settle up
           </Button>
@@ -133,6 +145,15 @@ export default function Transactions() {
           </Button>
         </div>
       </div>
+
+      {importNote && (
+        <Card className="flex items-center justify-between bg-emerald-50/70 !py-3">
+          <p className="text-sm text-emerald-800">{importNote}</p>
+          <button onClick={() => setImportNote(null)} className="text-xs text-emerald-700 hover:underline">
+            dismiss
+          </button>
+        </Card>
+      )}
 
       <Card className="flex items-center justify-between !py-3">
         {suggestion && creditor && debtor ? (
@@ -195,6 +216,11 @@ export default function Transactions() {
                         </p>
                       </div>
                       {splitLabel && <Chip>{splitLabel}</Chip>}
+                      {tx.recurring_id && (
+                        <Chip className="bg-violet-100 text-violet-700">
+                          <Repeat size={10} /> auto
+                        </Chip>
+                      )}
                       {tx.trip_expense_id && <Chip className="bg-sky-100 text-sky-700">trip</Chip>}
                       <span className="text-sm font-semibold tabular-nums">{fmtMoney(tx.amount_cents)}</span>
                     </button>
@@ -227,6 +253,29 @@ export default function Transactions() {
           onClose={() => setSettling(false)}
           onSaved={() => {
             setSettling(false)
+            reloadAll()
+          }}
+        />
+      )}
+      {managingRecurring && (
+        <RecurringModal
+          categories={categories}
+          onClose={() => setManagingRecurring(false)}
+          onChanged={reloadAll}
+        />
+      )}
+      {importing && (
+        <ImportWizard
+          categories={categories}
+          rules={rulesQuery.data?.rules ?? []}
+          onClose={() => setImporting(false)}
+          onRulesChanged={rulesQuery.reload}
+          onDone={(result) => {
+            setImporting(false)
+            setImportNote(
+              `Imported ${result.imported} transaction${result.imported === 1 ? '' : 's'}` +
+                (result.skipped > 0 ? ` — skipped ${result.skipped} already-imported duplicate${result.skipped === 1 ? '' : 's'}.` : '.'),
+            )
             reloadAll()
           }}
         />

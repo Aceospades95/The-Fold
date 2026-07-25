@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import type { SummaryResponse } from '@fold/shared'
+import { computeNetWorth } from '../lib/networth.js'
 import { getBalances, getTransactions } from '../lib/queries.js'
 import { currentMonth, monthRange, today } from '../lib/util.js'
 
@@ -89,6 +90,8 @@ export async function summaryRoutes(app: FastifyInstance): Promise<void> {
       )
       .all(householdId, req.user.id) as { id: string; list_id: string; text: string; due_date: string | null; list_name: string }[]
 
+    const netWorth = computeNetWorth(app.db, householdId)
+
     return {
       month,
       shared_allocated_cents: sharedAlloc,
@@ -99,6 +102,14 @@ export async function summaryRoutes(app: FastifyInstance): Promise<void> {
       next_trip,
       my_tasks,
       recent_transactions: getTransactions(app.db, householdId, { limit: 6 }),
+      net_worth:
+        netWorth.accounts.length > 0
+          ? {
+              net_cents: netWorth.net_cents,
+              delta_month_cents: netWorth.delta_month_cents,
+              account_count: netWorth.accounts.length,
+            }
+          : null,
     }
   })
 }

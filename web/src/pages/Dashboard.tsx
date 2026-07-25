@@ -104,6 +104,30 @@ export default function Dashboard() {
           )}
         </Card>
 
+        {data.net_worth && (
+          <Card>
+            <CardTitle
+              action={
+                <Link to="/networth" className="flex items-center gap-1 text-xs font-medium text-violet-600 hover:underline">
+                  Net worth <ArrowRight size={12} />
+                </Link>
+              }
+            >
+              Net worth
+            </CardTitle>
+            <p className="text-2xl font-bold tabular-nums">{fmtMoney(data.net_worth.net_cents)}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {data.net_worth.delta_month_cents != null ? (
+                <span className={data.net_worth.delta_month_cents >= 0 ? 'font-medium text-emerald-600' : 'font-medium text-red-600'}>
+                  {data.net_worth.delta_month_cents >= 0 ? '▲' : '▼'} {fmtMoney(Math.abs(data.net_worth.delta_month_cents))} this month
+                </span>
+              ) : (
+                `across ${data.net_worth.account_count} accounts`
+              )}
+            </p>
+          </Card>
+        )}
+
         <Card>
           <CardTitle
             action={

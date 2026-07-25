@@ -9,9 +9,14 @@ import { HttpError } from './lib/util.js'
 import { privateAuthRoutes, publicAuthRoutes } from './routes/auth.js'
 import { budgetRoutes } from './routes/budget.js'
 import { calendarRoutes } from './routes/calendar.js'
+import { hookRoutes } from './routes/hooks.js'
 import { householdRoutes } from './routes/household.js'
+import { importRoutes } from './routes/importing.js'
 import { incomeRoutes } from './routes/income.js'
+import { integrationRoutes } from './routes/integrations.js'
 import { listRoutes } from './routes/lists.js'
+import { netWorthRoutes } from './routes/networth.js'
+import { recurringRoutes } from './routes/recurring.js'
 import { summaryRoutes } from './routes/summary.js'
 import { transactionRoutes } from './routes/transactions.js'
 import { tripRoutes } from './routes/trips.js'
@@ -48,6 +53,7 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
 
   await app.register(publicAuthRoutes, { prefix: '/api' })
   await app.register(calendarRoutes, { prefix: '/api' })
+  await app.register(hookRoutes, { prefix: '/api' })
   await app.register(privateAuthRoutes, { prefix: '/api' })
   await app.register(
     async (priv) => {
@@ -56,6 +62,10 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
       await priv.register(incomeRoutes)
       await priv.register(budgetRoutes)
       await priv.register(transactionRoutes)
+      await priv.register(recurringRoutes)
+      await priv.register(importRoutes)
+      await priv.register(netWorthRoutes)
+      await priv.register(integrationRoutes)
       await priv.register(tripRoutes)
       await priv.register(listRoutes)
       await priv.register(summaryRoutes)

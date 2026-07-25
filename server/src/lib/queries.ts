@@ -27,7 +27,7 @@ export function getTransactions(
   householdId: string,
   opts: { start?: string; end?: string; limit?: number } = {},
 ): Tx[] {
-  let sql = `SELECT id, kind, date, description, amount_cents, category_id, payer_user_id, trip_expense_id, notes
+  let sql = `SELECT id, kind, date, description, amount_cents, category_id, payer_user_id, trip_expense_id, recurring_id, notes
              FROM transactions WHERE household_id = ?`
   const params: (string | number)[] = [householdId]
   if (opts.start) {

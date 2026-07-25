@@ -163,7 +163,69 @@ CREATE TABLE settings (
 );
 `
 
-const MIGRATIONS: { version: number; sql: string }[] = [{ version: 1, sql: SCHEMA_V1 }]
+const SCHEMA_V2 = `
+ALTER TABLE transactions ADD COLUMN recurring_id TEXT;
+ALTER TABLE transactions ADD COLUMN import_hash TEXT;
+CREATE INDEX idx_tx_import ON transactions(household_id, import_hash);
+
+CREATE TABLE recurring_transactions (
+  id TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id),
+  description TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL,
+  category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
+  payer_user_id TEXT NOT NULL REFERENCES users(id),
+  splits TEXT NOT NULL,
+  cadence TEXT NOT NULL DEFAULT 'monthly',
+  day_of_month INTEGER NOT NULL DEFAULT 1,
+  next_date TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  notes TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE import_rules (
+  id TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id),
+  match_text TEXT NOT NULL,
+  category_id TEXT REFERENCES categories(id) ON DELETE CASCADE,
+  split_mode TEXT NOT NULL DEFAULT 'equal',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE accounts (
+  id TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id),
+  name TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'checking',
+  owner_user_id TEXT REFERENCES users(id),
+  archived INTEGER NOT NULL DEFAULT 0,
+  sort INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE account_snapshots (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  balance_cents INTEGER NOT NULL,
+  UNIQUE (account_id, date)
+);
+
+CREATE TABLE api_tokens (
+  id TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id),
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  last_used_at TEXT
+);
+`
+
+const MIGRATIONS: { version: number; sql: string }[] = [
+  { version: 1, sql: SCHEMA_V1 },
+  { version: 2, sql: SCHEMA_V2 },
+]
 
 export function openDb(path: string): DatabaseSync {
   if (path !== ':memory:') {

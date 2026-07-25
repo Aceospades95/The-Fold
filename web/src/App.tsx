@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import type { MeResponse, UserPublic } from '@fold/shared'
-import { CalendarRange, LayoutDashboard, ListChecks, LogOut, PiggyBank, ReceiptText, Settings as SettingsIcon } from 'lucide-react'
+import { CalendarRange, LayoutDashboard, ListChecks, LogOut, PiggyBank, ReceiptText, Settings as SettingsIcon, TrendingUp } from 'lucide-react'
 import { api } from './api'
 import { Avatar, cls } from './ui'
 import Login from './pages/Login'
@@ -12,6 +12,7 @@ import Transactions from './pages/Transactions'
 import Trips from './pages/Trips'
 import TripDetail from './pages/TripDetail'
 import Lists from './pages/Lists'
+import NetWorth from './pages/NetWorth'
 import Settings from './pages/Settings'
 
 interface MeContextValue {
@@ -32,6 +33,7 @@ const NAV = [
   { to: '/', label: 'Home', icon: LayoutDashboard },
   { to: '/budget', label: 'Budget', icon: PiggyBank },
   { to: '/transactions', label: 'Spending', icon: ReceiptText },
+  { to: '/networth', label: 'Net worth', icon: TrendingUp },
   { to: '/trips', label: 'Trips', icon: CalendarRange },
   { to: '/lists', label: 'Lists', icon: ListChecks },
   { to: '/settings', label: 'Settings', icon: SettingsIcon },
@@ -159,6 +161,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/budget" element={<Budget />} />
           <Route path="/transactions" element={<Transactions />} />
+          <Route path="/networth" element={<NetWorth />} />
           <Route path="/trips" element={<Trips />} />
           <Route path="/trips/:id" element={<TripDetail />} />
           <Route path="/lists" element={<Lists />} />

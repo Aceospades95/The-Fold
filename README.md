@@ -7,10 +7,29 @@ The Fold exists because the pieces were scattered: Splitwise for splits, Mint fo
 ## What works today (v0.1)
 
 - **Two-person household** with individual sign-ins, set up in one screen.
-- **Income & funding** — each person's income sources (any pay cadence), normalized to monthly.
+- **Income & funding** — each person's income sources (any pay cadence), normalized to monthly, with per-month overrides for bonus or slow months.
+
+### The budget (the part we polished first)
+
+- **Envelope budgeting built for two.** A starter budget arrives grouped into **Home / Food / Getting around / Life & health / Goals** — collapsible sections with their own subtotals.
+- **Budgeted → Spent → Available** on every row, so you always know what's actually left, not just what you planned.
+- **Rollover envelopes.** Turn it on for travel, car repairs, gifts — leftovers (and overspends) carry into next month. Turn it off for groceries and it resets monthly, the way you'd expect.
+- **Targets & sinking funds.** "Budget $700 every month," or "save $2,700 by September 12" — The Fold does the division and tells you what to put in this month to stay on track.
+- **Left to assign, per person.** Each of you sees income − your share of the joint budget − your personal envelopes. The household summary shows income, assigned, and unassigned at a glance.
+- **Pace tracking.** "Day 27 of 31 — 87% through the month, 68% of budget spent — on pace," with a marker on the bar for today.
+- **Move money** between envelopes when life happens, and one-click **Cover** on anything overspent.
+- **Auto-fill** a month from last month's amounts, your targets, a 3-month average, or last month's actual spending.
+- **Category drilldown** — click any envelope for six months of budgeted-vs-spent bars, this month's transactions, quick-set buttons, and its settings (rollover, target, group).
+- **Trends** — six months of budgeted vs spent, where the money went by group, and the biggest movers versus last month.
 - **Shared budget, split your way** — joint categories funded 50/50, proportional to income, or custom percentages; the app shows each person's share every month.
-- **Personal budgets** — your own categories out of your own remaining income. No questions asked.
+- **Personal budgets** — your own envelopes out of your own remaining income. No questions asked.
+
+### Spending
+
 - **Splitwise-style expenses** — any expense can be split 50/50, by income, custom amounts, or "they owe it all"; a running balance shows who owes whom, with one-click settle-up records.
+- **One purchase, several categories.** A $240 Costco run can be $104 groceries, $76 household, and $60 of someone's personal fun money — each slice lands in its own envelope.
+- **"By category" splitting.** With a multi-category purchase, The Fold works out who owes what: personal lines go to their owner, shared lines split by your household rule. That Costco run becomes Jake $160.80 / Sam $79.20 automatically.
+- **Classify queue** — imported transactions that arrive bare land in a "needs a category" list you can clear in a few clicks (or split across categories).
 - **Trip planner** — trips with ordered stops (dates, lodging, notes), budget buckets (Lodging / Transport / Food / …), planned-vs-actual expenses per bucket, and remaining/over-budget rollups. Wishlist ideas live next to fully planned routes.
 - **Trips flow into the budget** — post any trip expense into a monthly budget category with a split, one click, no double entry.
 - **Lists** — to-dos, chores, groceries, wishlists (with prices and links), assignable to either of you, with due dates.

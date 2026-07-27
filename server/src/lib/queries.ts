@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { BalancesResponse, Member, Split, Tx } from '@fold/shared'
+import type { BalancesResponse, Member, Split, Tx, TxLine } from '@fold/shared'
 import { monthlyCents } from '@fold/shared'
 import type { Cadence } from '@fold/shared'
 
@@ -25,11 +25,16 @@ export function getMembers(db: DatabaseSync, householdId: string): Member[] {
 export function getTransactions(
   db: DatabaseSync,
   householdId: string,
-  opts: { start?: string; end?: string; limit?: number } = {},
+  opts: { start?: string; end?: string; limit?: number; uncategorizedOnly?: boolean } = {},
 ): Tx[] {
   let sql = `SELECT id, kind, date, description, amount_cents, category_id, payer_user_id, trip_expense_id, recurring_id, notes
              FROM transactions WHERE household_id = ?`
   const params: (string | number)[] = [householdId]
+  if (opts.uncategorizedOnly) {
+    sql += ` AND kind = 'expense' AND EXISTS (
+               SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = transactions.id AND tl.category_id IS NULL
+             )`
+  }
   if (opts.start) {
     sql += ' AND date >= ?'
     params.push(opts.start)
@@ -43,19 +48,29 @@ export function getTransactions(
     sql += ' LIMIT ?'
     params.push(opts.limit)
   }
-  const rows = db.prepare(sql).all(...params) as Omit<Tx, 'splits'>[]
+  const rows = db.prepare(sql).all(...params) as Omit<Tx, 'splits' | 'lines'>[]
   if (rows.length === 0) return []
   const placeholders = rows.map(() => '?').join(',')
+  const ids = rows.map((r) => r.id)
   const splits = db
     .prepare(
       `SELECT transaction_id, user_id, share_cents FROM transaction_splits WHERE transaction_id IN (${placeholders})`,
     )
-    .all(...rows.map((r) => r.id)) as unknown as (Split & { transaction_id: string })[]
+    .all(...ids) as unknown as (Split & { transaction_id: string })[]
+  const lines = db
+    .prepare(
+      `SELECT id, transaction_id, category_id, amount_cents, note FROM transaction_lines
+       WHERE transaction_id IN (${placeholders}) ORDER BY sort`,
+    )
+    .all(...ids) as unknown as (TxLine & { transaction_id: string })[]
   return rows.map((r) => ({
     ...r,
     splits: splits
       .filter((s) => s.transaction_id === r.id)
       .map(({ user_id, share_cents }) => ({ user_id, share_cents })),
+    lines: lines
+      .filter((l) => l.transaction_id === r.id)
+      .map(({ id: lineId, category_id, amount_cents, note }) => ({ id: lineId, category_id, amount_cents, note })),
   }))
 }
 

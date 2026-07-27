@@ -222,9 +222,58 @@ CREATE TABLE api_tokens (
 );
 `
 
+const SCHEMA_V3 = `
+CREATE TABLE category_groups (
+  id TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id),
+  name TEXT NOT NULL,
+  emoji TEXT,
+  sort INTEGER NOT NULL DEFAULT 0
+);
+
+ALTER TABLE categories ADD COLUMN group_id TEXT REFERENCES category_groups(id) ON DELETE SET NULL;
+ALTER TABLE categories ADD COLUMN rollover INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE categories ADD COLUMN target_cents INTEGER;
+ALTER TABLE categories ADD COLUMN target_type TEXT NOT NULL DEFAULT 'none';
+ALTER TABLE categories ADD COLUMN target_date TEXT;
+ALTER TABLE categories ADD COLUMN notes TEXT;
+
+CREATE TABLE month_incomes (
+  household_id TEXT NOT NULL REFERENCES households(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  month TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL,
+  PRIMARY KEY (household_id, user_id, month)
+);
+`
+
+/**
+ * Line items: one purchase can be split across several categories (the $300
+ * Costco run that is $100 groceries and $200 household). Lines are the source
+ * of truth for category spending; transactions.category_id stays as a
+ * convenience mirror of the single-line case.
+ */
+const SCHEMA_V4 = `
+CREATE TABLE transaction_lines (
+  id TEXT PRIMARY KEY,
+  transaction_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+  category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
+  amount_cents INTEGER NOT NULL,
+  note TEXT,
+  sort INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_lines_transaction ON transaction_lines(transaction_id);
+CREATE INDEX idx_lines_category ON transaction_lines(category_id);
+
+INSERT INTO transaction_lines (id, transaction_id, category_id, amount_cents, note, sort)
+SELECT lower(hex(randomblob(16))), id, category_id, amount_cents, NULL, 0 FROM transactions;
+`
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: SCHEMA_V1 },
   { version: 2, sql: SCHEMA_V2 },
+  { version: 3, sql: SCHEMA_V3 },
+  { version: 4, sql: SCHEMA_V4 },
 ]
 
 export function openDb(path: string): DatabaseSync {

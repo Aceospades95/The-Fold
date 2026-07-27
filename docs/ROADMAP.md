@@ -19,10 +19,26 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] CSV import with a review-and-match screen (category + split per row, duplicate detection).
 - [x] Auto-rules ("Costco → Groceries, 50/50") applied at import.
 - [x] Recurring transactions (rent, subscriptions) that post themselves each month/year with catch-up.
+- [x] Multi-category transactions (line items) and a classify queue for anything imported bare.
 - [ ] OFX/QFX import alongside CSV.
 - [ ] SimpleFIN Bridge sync: accounts, balances, transactions on a schedule.
-- [ ] Monthly close: rollover options per category, month-in-review page.
+- [ ] Auto-rules that split across categories, not just one.
 - [ ] Settings encryption for stored credentials; rate limiting; cookie `Secure` when behind HTTPS.
+
+## Phase 1b — Budget depth ✅
+
+- [x] Category groups with collapsible sections and subtotals.
+- [x] Rollover envelopes (leftovers and overspends carry forward); non-rollover envelopes reset monthly.
+- [x] Targets: monthly amounts and save-by-a-date sinking funds with per-month suggestions.
+- [x] Budgeted / spent / available on every row, with overspend highlighting and one-click cover.
+- [x] Move money between envelopes; auto-fill a month from last month, targets, or averages.
+- [x] Per-person "left to assign", household assigned/unassigned, and month-pace tracking.
+- [x] Category drilldown: six-month history, this month's transactions, quick-set, settings.
+- [x] Trends: budgeted vs spent over six months, spending by group, biggest movers.
+- [x] Per-month income overrides for bonus and slow months.
+- [ ] Month-in-review summary you can page back through.
+- [ ] Drag-to-reorder categories and groups (buttons/APIs exist; drag UI pending).
+- [ ] Credit-card float handling for people who pay the statement, not the purchase.
 
 ## Phase 2 — Calendar, tasks, email
 

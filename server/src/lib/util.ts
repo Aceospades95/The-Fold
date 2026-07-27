@@ -24,6 +24,32 @@ export function monthRange(month: string): { start: string; end: string } {
   return { start, end }
 }
 
+export function shiftMonth(month: string, delta: number): string {
+  const [y, m] = month.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1 + delta, 1)).toISOString().slice(0, 7)
+}
+
+/** Whole months from `from` to `to` (negative when `to` is earlier). */
+export function monthsBetween(from: string, to: string): number {
+  const [fy, fm] = from.split('-').map(Number)
+  const [ty, tm] = to.split('-').map(Number)
+  return (ty - fy) * 12 + (tm - fm)
+}
+
+export function monthList(from: string, to: string): string[] {
+  const months: string[] = []
+  for (let cursor = from; cursor <= to; cursor = shiftMonth(cursor, 1)) {
+    months.push(cursor)
+    if (months.length > 600) break
+  }
+  return months
+}
+
+export function daysInMonth(month: string): number {
+  const [y, m] = month.split('-').map(Number)
+  return new Date(Date.UTC(y, m, 0)).getUTCDate()
+}
+
 export function addDays(date: string, days: number): string {
   const d = new Date(`${date}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + days)

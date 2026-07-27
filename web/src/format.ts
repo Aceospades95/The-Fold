@@ -9,8 +9,14 @@ const fullDateFmt = new Intl.DateTimeFormat('en-US', {
   timeZone: 'UTC',
 })
 
+const monthShortFmt = new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: 'UTC' })
+
 export function fmtMonth(month: string): string {
   return monthFmt.format(new Date(`${month}-01T00:00:00Z`))
+}
+
+export function fmtMonthShort(month: string): string {
+  return monthShortFmt.format(new Date(`${month}-01T00:00:00Z`))
 }
 
 export function fmtDate(date: string): string {

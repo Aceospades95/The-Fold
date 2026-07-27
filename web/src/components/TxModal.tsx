@@ -1,21 +1,24 @@
 import { useState } from 'react'
 import type { Category, Tx } from '@fold/shared'
+import { Plus, Split as SplitIcon, X } from 'lucide-react'
 import { api } from '../api'
 import { useMe } from '../App'
-import { todayStr } from '../format'
+import { fmtMoney, todayStr } from '../format'
 import { Avatar, Button, ErrorNote, Field, Modal, MoneyInput, Select, TextInput, cls } from '../ui'
-import { SplitEditor, computeSplits, inferMode, type SplitMode } from './SplitEditor'
+import { SplitEditor, computeSplits, inferMode, type SplitLine, type SplitMode } from './SplitEditor'
 
 export function CategorySelect({
   categories,
   value,
   onChange,
   allowNone,
+  className,
 }: {
   categories: Category[]
   value: string | ''
   onChange: (id: string | '') => void
   allowNone?: boolean
+  className?: string
 }) {
   const { me } = useMe()
   const shared = categories.filter((c) => c.scope === 'shared')
@@ -26,7 +29,7 @@ export function CategorySelect({
     }))
     .filter((group) => group.cats.length > 0)
   return (
-    <Select value={value} onChange={(e) => onChange(e.target.value)}>
+    <Select value={value} onChange={(e) => onChange(e.target.value)} className={className}>
       {allowNone && <option value="">No category</option>}
       <optgroup label="Shared">
         {shared.map((c) => (
@@ -72,6 +75,99 @@ export function PayerPicker({ value, onChange }: { value: string; onChange: (id:
   )
 }
 
+/** Assign one purchase across several categories — $100 food, $200 household. */
+export function LineEditor({
+  lines,
+  categories,
+  amountCents,
+  onChange,
+}: {
+  lines: SplitLine[]
+  categories: Category[]
+  amountCents: number | null
+  onChange: (lines: SplitLine[]) => void
+}) {
+  const assigned = lines.reduce((sum, line) => sum + (line.amount_cents ?? 0), 0)
+  const remaining = (amountCents ?? 0) - assigned
+
+  function update(index: number, patch: Partial<SplitLine>): void {
+    onChange(lines.map((line, i) => (i === index ? { ...line, ...patch } : line)))
+  }
+
+  if (lines.length <= 1) {
+    return (
+      <div className="space-y-1.5">
+        <CategorySelect
+          categories={categories}
+          value={lines[0]?.category_id ?? ''}
+          onChange={(id) => onChange([{ category_id: id, amount_cents: amountCents }])}
+          allowNone
+        />
+        <button
+          type="button"
+          onClick={() =>
+            onChange([
+              { category_id: lines[0]?.category_id ?? '', amount_cents: null },
+              { category_id: '', amount_cents: null },
+            ])
+          }
+          className="inline-flex items-center gap-1 text-xs font-medium text-violet-600 hover:underline"
+        >
+          <SplitIcon size={12} /> Split across categories
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      {lines.map((line, index) => (
+        <div key={index} className="flex items-center gap-2">
+          <CategorySelect
+            categories={categories}
+            value={line.category_id}
+            onChange={(id) => update(index, { category_id: id })}
+            allowNone
+            className="min-w-0 flex-1"
+          />
+          <div className="w-28 shrink-0">
+            <MoneyInput cents={line.amount_cents} onCents={(cents) => update(index, { amount_cents: cents })} />
+          </div>
+          {remaining !== 0 && (
+            <button
+              type="button"
+              title={`Assign the remaining ${fmtMoney(remaining)}`}
+              onClick={() => update(index, { amount_cents: (line.amount_cents ?? 0) + remaining })}
+              className="shrink-0 rounded px-1 text-[10px] font-semibold text-violet-600 hover:bg-violet-50"
+            >
+              rest
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onChange(lines.filter((_, i) => i !== index))}
+            className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => onChange([...lines, { category_id: '', amount_cents: remaining > 0 ? remaining : null }])}
+          className="inline-flex items-center gap-1 text-xs font-medium text-violet-600 hover:underline"
+        >
+          <Plus size={12} /> Add category
+        </button>
+        <span className={cls('text-xs tabular-nums', remaining === 0 ? 'text-emerald-600' : 'text-amber-600')}>
+          {remaining === 0 ? 'All assigned ✓' : `${fmtMoney(remaining)} left to assign`}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export default function TxModal({
   existing,
   categories,
@@ -88,23 +184,44 @@ export default function TxModal({
   const [description, setDescription] = useState(existing?.description ?? '')
   const [amount, setAmount] = useState<number | null>(existing?.amount_cents ?? null)
   const [date, setDate] = useState(existing?.date ?? todayStr())
-  const [categoryId, setCategoryId] = useState<string | ''>(existing?.category_id ?? categories.find((c) => c.scope === 'shared')?.id ?? '')
   const [payerId, setPayerId] = useState(existing?.payer_user_id ?? me.user.id)
-  const [mode, setMode] = useState<SplitMode>(
-    existing ? inferMode(existing.splits, existing.payer_user_id, members) : members.length > 1 ? 'equal' : 'none',
-  )
+  const [lines, setLines] = useState<SplitLine[]>(() => {
+    if (existing && existing.lines.length > 0) {
+      return existing.lines.map((line) => ({ category_id: line.category_id ?? '', amount_cents: line.amount_cents }))
+    }
+    return [{ category_id: categories.find((c) => c.scope === 'shared')?.id ?? '', amount_cents: existing?.amount_cents ?? null }]
+  })
+  const [mode, setMode] = useState<SplitMode>(() => {
+    if (!existing) return members.length > 1 ? 'equal' : 'none'
+    return inferMode(existing.splits, existing.payer_user_id, members, {
+      lines: existing.lines.map((line) => ({ category_id: line.category_id ?? '', amount_cents: line.amount_cents })),
+      categories,
+      rule: me.household.split_rule,
+    })
+  })
   const [custom, setCustom] = useState<Record<string, number | null>>(() => {
     const initial: Record<string, number | null> = {}
-    if (existing) {
-      for (const split of existing.splits) initial[split.user_id] = split.share_cents
-    }
+    if (existing) for (const split of existing.splits) initial[split.user_id] = split.share_cents
     return initial
   })
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const splits = computeSplits(amount, mode, payerId, members, custom)
-  const valid = description.trim().length > 0 && amount != null && amount > 0 && splits != null
+  const multiLine = lines.length > 1
+  const linesTotal = lines.reduce((sum, line) => sum + (line.amount_cents ?? 0), 0)
+  const linesBalanced = !multiLine || (amount != null && linesTotal === amount && lines.every((l) => (l.amount_cents ?? 0) > 0))
+  const splits = computeSplits(amount, mode, payerId, members, custom, {
+    lines,
+    categories,
+    rule: me.household.split_rule,
+  })
+  const valid = description.trim().length > 0 && amount != null && amount > 0 && splits != null && linesBalanced
+
+  /** Keep a single-category line pinned to the total. */
+  function setTotal(cents: number | null): void {
+    setAmount(cents)
+    if (!multiLine) setLines([{ category_id: lines[0]?.category_id ?? '', amount_cents: cents }])
+  }
 
   async function save(): Promise<void> {
     if (!valid) return
@@ -114,9 +231,12 @@ export default function TxModal({
       date,
       description: description.trim(),
       amount_cents: amount,
-      category_id: categoryId || null,
+      category_id: multiLine ? null : lines[0]?.category_id || null,
       payer_user_id: payerId,
       splits,
+      lines: multiLine
+        ? lines.map((line) => ({ category_id: line.category_id || null, amount_cents: line.amount_cents! }))
+        : undefined,
     }
     try {
       if (existing) await api.patch(`/transactions/${existing.id}`, body)
@@ -145,7 +265,7 @@ export default function TxModal({
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Amount">
-            <MoneyInput cents={amount} onCents={setAmount} autoFocus={!existing} />
+            <MoneyInput cents={amount} onCents={setTotal} autoFocus={!existing} />
           </Field>
           <Field label="Date">
             <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
@@ -154,13 +274,13 @@ export default function TxModal({
         <Field label="Description">
           <TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Groceries, rent, date night…" />
         </Field>
-        <Field label="Category">
-          <CategorySelect categories={categories} value={categoryId} onChange={setCategoryId} allowNone />
+        <Field label={multiLine ? 'Categories' : 'Category'}>
+          <LineEditor lines={lines} categories={categories} amountCents={amount} onChange={setLines} />
         </Field>
         <Field label="Paid by">
           <PayerPicker value={payerId} onChange={setPayerId} />
         </Field>
-        <Field label="Split">
+        <Field label="Who owes what">
           <SplitEditor
             amountCents={amount}
             payerId={payerId}
@@ -169,6 +289,7 @@ export default function TxModal({
             custom={custom}
             onMode={setMode}
             onCustom={(userId, cents) => setCustom((prev) => ({ ...prev, [userId]: cents }))}
+            context={{ lines, categories, rule: me.household.split_rule }}
           />
         </Field>
         <ErrorNote message={error} />

@@ -17,6 +17,11 @@ const importBody = z.object({
         amount_cents: z.number().int().positive(),
         category_id: z.string().nullish(),
         splits: z.array(splitSchema).min(1),
+        lines: z
+          .array(z.object({ category_id: z.string().nullish(), amount_cents: z.number().int().positive() }))
+          .min(1)
+          .max(30)
+          .optional(),
       }),
     )
     .min(1)
@@ -58,6 +63,13 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
         if (!memberIds.includes(split.user_id)) badRequest('Split member is not in your household.')
       }
       if (row.category_id && !categoryIds.has(row.category_id)) badRequest('Unknown category.')
+      if (row.lines) {
+        const lineTotal = row.lines.reduce((sum, line) => sum + line.amount_cents, 0)
+        if (lineTotal !== row.amount_cents) badRequest(`Category amounts for "${row.description}" don't add up.`)
+        for (const line of row.lines) {
+          if (line.category_id && !categoryIds.has(line.category_id)) badRequest('Unknown category.')
+        }
+      }
 
       const hash = importHash(row.date, row.amount_cents, row.description)
       const existing = app.db
@@ -76,6 +88,7 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
         payer_user_id: body.payer_user_id,
         import_hash: hash,
         splits: row.splits,
+        lines: row.lines,
       })
       imported += 1
     }

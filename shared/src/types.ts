@@ -40,19 +40,50 @@ export interface IncomeSource {
   notes: string | null
 }
 
+export type TargetType = 'none' | 'monthly' | 'by_date'
+
+export interface CategoryGroup {
+  id: string
+  name: string
+  emoji: string | null
+  sort: number
+}
+
 export interface Category {
   id: string
   name: string
   emoji: string | null
   scope: CategoryScope
   owner_user_id: string | null
+  group_id: string | null
+  rollover: 0 | 1
+  target_cents: number | null
+  target_type: TargetType
+  target_date: string | null
+  notes: string | null
   sort: number
   archived: 0 | 1
 }
 
 export interface BudgetCategoryRow extends Category {
+  /** Money assigned to this envelope for the month. */
   allocated_cents: number
   spent_cents: number
+  /** Balance carried in from last month (0 unless rollover is on). */
+  carryover_cents: number
+  /** carryover + allocated − spent. Negative means overspent. */
+  available_cents: number
+  /** What to budget this month to stay on target (null when no target). */
+  target_suggestion_cents: number | null
+  last_month_allocated_cents: number
+  last_month_spent_cents: number
+  avg3_spent_cents: number
+}
+
+export interface BudgetGroupRow extends CategoryGroup {
+  allocated_cents: number
+  spent_cents: number
+  available_cents: number
 }
 
 export interface BudgetMemberRow {
@@ -60,10 +91,20 @@ export interface BudgetMemberRow {
   name: string
   color: string
   monthly_income_cents: number
+  income_override_cents: number | null
   contribution_cents: number
   personal_allocated_cents: number
   personal_spent_cents: number
+  personal_available_cents: number
+  /** income − share of the joint budget − personal envelopes. */
   left_cents: number
+}
+
+export interface BudgetPace {
+  day: number
+  days_in_month: number
+  elapsed_pct: number
+  spent_pct: number
 }
 
 export interface BudgetResponse {
@@ -71,15 +112,61 @@ export interface BudgetResponse {
   split_rule: SplitRule
   custom_split: Record<string, number> | null
   members: BudgetMemberRow[]
+  groups: BudgetGroupRow[]
   categories: BudgetCategoryRow[]
   shared_allocated_cents: number
   shared_spent_cents: number
+  shared_available_cents: number
+  combined_income_cents: number
+  total_assigned_cents: number
+  total_spent_cents: number
+  unassigned_cents: number
+  uncategorized: { count: number; amount_cents: number }
+  pace: BudgetPace | null
   has_allocations: boolean
+  prev_month_has_allocations: boolean
 }
+
+export interface CategoryHistoryPoint {
+  month: string
+  allocated_cents: number
+  spent_cents: number
+}
+
+export interface CategoryDetailResponse {
+  category: BudgetCategoryRow
+  history: CategoryHistoryPoint[]
+  transactions: Tx[]
+}
+
+export interface TrendMonth {
+  month: string
+  income_cents: number
+  allocated_cents: number
+  spent_cents: number
+  shared_spent_cents: number
+  personal_spent_cents: number
+}
+
+export interface TrendsResponse {
+  months: TrendMonth[]
+  by_group: { group_id: string | null; name: string; emoji: string | null; spent_cents: number }[]
+  movers: { id: string; name: string; emoji: string | null; spent_cents: number; prev_spent_cents: number }[]
+}
+
+export type QuickFillStrategy = 'last_month' | 'avg3' | 'spent_last_month' | 'targets'
 
 export interface Split {
   user_id: string
   share_cents: number
+}
+
+/** One slice of a purchase assigned to a category. */
+export interface TxLine {
+  id: string
+  category_id: string | null
+  amount_cents: number
+  note: string | null
 }
 
 export interface Tx {
@@ -88,12 +175,14 @@ export interface Tx {
   date: string
   description: string
   amount_cents: number
+  /** The single line's category, or null when the purchase spans several. */
   category_id: string | null
   payer_user_id: string
   trip_expense_id: string | null
   recurring_id: string | null
   notes: string | null
   splits: Split[]
+  lines: TxLine[]
 }
 
 export type RecurringCadence = 'monthly' | 'yearly'

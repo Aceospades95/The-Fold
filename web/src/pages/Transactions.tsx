@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import type { BalancesResponse, Category, ImportRule, Tx } from '@fold/shared'
-import { ArrowLeftRight, ChevronLeft, ChevronRight, Plus, Repeat, Upload } from 'lucide-react'
+import { ArrowLeftRight, ChevronLeft, ChevronRight, Plus, Repeat, Split as SplitIcon, Tag, Upload } from 'lucide-react'
 import { api, useApi } from '../api'
 import { useMe } from '../App'
-import { currentMonth, fmtDateFull, fmtMoney, fmtMonth, shiftMonth, todayStr } from '../format'
-import { Avatar, Button, Card, Chip, EmptyState, ErrorNote, Field, Modal, MoneyInput, TextInput } from '../ui'
+import { currentMonth, fmtDate, fmtDateFull, fmtMoney, fmtMonth, shiftMonth, todayStr } from '../format'
+import { Avatar, Button, Card, Chip, EmptyState, ErrorNote, Field, Modal, MoneyInput, TextInput, cls } from '../ui'
 import ImportWizard from '../components/ImportWizard'
 import RecurringModal from '../components/RecurringModal'
-import TxModal from '../components/TxModal'
+import TxModal, { CategorySelect } from '../components/TxModal'
 
 function SettleModal({ balances, onClose, onSaved }: { balances: BalancesResponse; onClose: () => void; onSaved: () => void }) {
   const { me } = useMe()
@@ -86,13 +87,103 @@ function SettleModal({ balances, onClose, onSaved }: { balances: BalancesRespons
   )
 }
 
+/** Post-import cleanup: assign a category to everything that came in bare. */
+function ClassifyQueue({
+  transactions,
+  categories,
+  onDone,
+  onSplit,
+  onReload,
+}: {
+  transactions: Tx[]
+  categories: Category[]
+  onDone: () => void
+  onSplit: (tx: Tx) => void
+  onReload: () => void
+}) {
+  const { me } = useMe()
+  const [error, setError] = useState<string | null>(null)
+
+  async function assign(tx: Tx, categoryId: string): Promise<void> {
+    if (!categoryId) return
+    setError(null)
+    try {
+      await api.patch(`/transactions/${tx.id}/categories`, {
+        lines: [{ category_id: categoryId, amount_cents: tx.amount_cents }],
+      })
+      onReload()
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  return (
+    <Card>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div>
+          <h2 className="flex items-center gap-2 font-semibold">
+            <Tag size={16} className="text-amber-500" /> Needs a category
+          </h2>
+          <p className="text-xs text-slate-500">
+            {transactions.length === 0
+              ? 'All caught up — every transaction is categorized.'
+              : `${transactions.length} transaction${transactions.length === 1 ? '' : 's'} won’t show in the budget until you file ${transactions.length === 1 ? 'it' : 'them'}.`}
+          </p>
+        </div>
+        <Button variant="secondary" onClick={onDone}>
+          Back to all spending
+        </Button>
+      </div>
+      <ErrorNote message={error} />
+      {transactions.length === 0 ? (
+        <EmptyState emoji="🎉" title="Nothing left to classify">
+          Imported transactions land here whenever they arrive without a category.
+        </EmptyState>
+      ) : (
+        <ul className="divide-y divide-slate-100">
+          {transactions.map((tx) => {
+            const payer = me.household.members.find((m) => m.id === tx.payer_user_id)
+            return (
+              <li key={tx.id} className="flex flex-wrap items-center gap-2 py-2.5">
+                {payer && <Avatar name={payer.name} color={payer.color} size={26} />}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{tx.description}</p>
+                  <p className="text-xs text-slate-500">{fmtDate(tx.date)}</p>
+                </div>
+                <span className="text-sm font-semibold tabular-nums">{fmtMoney(tx.amount_cents)}</span>
+                <CategorySelect
+                  categories={categories}
+                  value=""
+                  onChange={(categoryId) => void assign(tx, categoryId)}
+                  allowNone
+                  className="!w-44"
+                />
+                <button
+                  onClick={() => onSplit(tx)}
+                  title="Split this across several categories"
+                  className="rounded-lg border border-slate-300 p-1.5 text-slate-500 hover:border-violet-400 hover:text-violet-600"
+                >
+                  <SplitIcon size={14} />
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </Card>
+  )
+}
+
 export default function Transactions() {
   const { me } = useMe()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const needsCategory = searchParams.get('needs') === 'category'
   const [month, setMonth] = useState(currentMonth())
   const transactions = useApi<{ transactions: Tx[] }>(`/transactions?month=${month}`)
   const balances = useApi<BalancesResponse>('/balances')
   const categoriesQuery = useApi<{ categories: Category[] }>('/categories')
   const rulesQuery = useApi<{ rules: ImportRule[] }>('/import-rules')
+  const uncategorizedQuery = useApi<{ transactions: Tx[] }>(needsCategory ? '/transactions?uncategorized=1' : null)
   const [editing, setEditing] = useState<Tx | null>(null)
   const [adding, setAdding] = useState(false)
   const [settling, setSettling] = useState(false)
@@ -117,6 +208,19 @@ export default function Transactions() {
   function reloadAll(): void {
     transactions.reload()
     balances.reload()
+    if (needsCategory) uncategorizedQuery.reload()
+  }
+
+  function categoryLabel(tx: Tx): string {
+    if (tx.kind === 'settlement') return 'Settle up'
+    if (tx.lines.length > 1) {
+      const named = tx.lines
+        .map((line) => categoryById.get(line.category_id ?? '')?.name)
+        .filter((name): name is string => !!name)
+      return named.length > 0 ? `${named[0]} + ${tx.lines.length - 1} more` : `${tx.lines.length} categories`
+    }
+    const category = tx.lines[0]?.category_id ? categoryById.get(tx.lines[0].category_id) : null
+    return category ? `${category.emoji ?? ''} ${category.name}`.trim() : 'Uncategorized'
   }
 
   const suggestion = balances.data?.suggestion
@@ -131,6 +235,11 @@ export default function Transactions() {
           <p className="text-sm text-slate-500">Every shared and personal expense, split your way.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {!needsCategory && (
+            <Button variant="secondary" onClick={() => setSearchParams({ needs: 'category' })}>
+              <Tag size={15} /> Classify
+            </Button>
+          )}
           <Button variant="secondary" onClick={() => setImporting(true)}>
             <Upload size={15} /> Import CSV
           </Button>
@@ -147,11 +256,19 @@ export default function Transactions() {
       </div>
 
       {importNote && (
-        <Card className="flex items-center justify-between bg-emerald-50/70 !py-3">
+        <Card className="flex flex-wrap items-center justify-between gap-2 bg-emerald-50/70 !py-3">
           <p className="text-sm text-emerald-800">{importNote}</p>
-          <button onClick={() => setImportNote(null)} className="text-xs text-emerald-700 hover:underline">
-            dismiss
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setSearchParams({ needs: 'category' })}
+              className="text-xs font-medium text-emerald-800 underline"
+            >
+              Classify what’s missing →
+            </button>
+            <button onClick={() => setImportNote(null)} className="text-xs text-emerald-700 hover:underline">
+              dismiss
+            </button>
+          </div>
         </Card>
       )}
 
@@ -177,7 +294,15 @@ export default function Transactions() {
         </div>
       </Card>
 
-      {grouped.length === 0 && !transactions.loading ? (
+      {needsCategory ? (
+        <ClassifyQueue
+          transactions={uncategorizedQuery.data?.transactions ?? []}
+          categories={categories}
+          onDone={() => setSearchParams({})}
+          onSplit={(tx) => setEditing(tx)}
+          onReload={reloadAll}
+        />
+      ) : grouped.length === 0 && !transactions.loading ? (
         <EmptyState emoji="🧾" title={`Nothing recorded for ${fmtMonth(month)}`}>
           Add an expense and choose how to split it.
         </EmptyState>
@@ -189,8 +314,8 @@ export default function Transactions() {
               <Card className="divide-y divide-slate-100 !p-0">
                 {group.txs.map((tx) => {
                   const payer = members.find((m) => m.id === tx.payer_user_id)
-                  const category = tx.category_id ? categoryById.get(tx.category_id) : null
                   const isSettlement = tx.kind === 'settlement'
+                  const uncategorized = !isSettlement && tx.lines.some((line) => !line.category_id)
                   const splitLabel = isSettlement
                     ? 'payment'
                     : tx.splits.length > 1
@@ -211,10 +336,15 @@ export default function Transactions() {
                           {isSettlement ? '💸 ' : ''}
                           {tx.description}
                         </p>
-                        <p className="text-xs text-slate-500">
-                          {category ? `${category.emoji ?? ''} ${category.name}` : isSettlement ? 'Settle up' : 'Uncategorized'}
+                        <p className={cls('text-xs', uncategorized ? 'font-medium text-amber-600' : 'text-slate-500')}>
+                          {categoryLabel(tx)}
                         </p>
                       </div>
+                      {tx.lines.length > 1 && (
+                        <Chip className="bg-slate-100 text-slate-600">
+                          <SplitIcon size={10} /> {tx.lines.length}
+                        </Chip>
+                      )}
                       {splitLabel && <Chip>{splitLabel}</Chip>}
                       {tx.recurring_id && (
                         <Chip className="bg-violet-100 text-violet-700">

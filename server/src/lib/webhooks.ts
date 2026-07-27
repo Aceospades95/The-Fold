@@ -87,8 +87,9 @@ async function fireBudgetOver({ db, householdId, config }: DailyContext): Promis
   const rows = db
     .prepare(
       `SELECT c.id, c.name, a.amount_cents AS allocated,
-              COALESCE((SELECT SUM(t.amount_cents) FROM transactions t
-                        WHERE t.category_id = c.id AND t.kind = 'expense' AND t.date >= ? AND t.date < ?), 0) AS spent
+              COALESCE((SELECT SUM(tl.amount_cents) FROM transaction_lines tl
+                        JOIN transactions t ON t.id = tl.transaction_id
+                        WHERE tl.category_id = c.id AND t.kind = 'expense' AND t.date >= ? AND t.date < ?), 0) AS spent
        FROM categories c JOIN allocations a ON a.category_id = c.id AND a.month = ?
        WHERE c.household_id = ? AND c.archived = 0 AND a.amount_cents > 0`,
     )

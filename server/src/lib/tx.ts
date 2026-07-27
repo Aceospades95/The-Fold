@@ -1,11 +1,18 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { id, now } from './util.js'
 
+export interface TxLineInput {
+  category_id?: string | null
+  amount_cents: number
+  note?: string | null
+}
+
 export interface TxInput {
   kind: 'expense' | 'settlement'
   date: string
   description: string
   amount_cents: number
+  /** Single-category shorthand; ignored when `lines` is provided. */
   category_id?: string | null
   payer_user_id: string
   trip_expense_id?: string | null
@@ -13,10 +20,33 @@ export interface TxInput {
   import_hash?: string | null
   notes?: string | null
   splits: { user_id: string; share_cents: number }[]
+  lines?: TxLineInput[]
+}
+
+export function normalizeLines(input: TxInput): TxLineInput[] {
+  if (input.lines && input.lines.length > 0) return input.lines
+  return [{ category_id: input.category_id ?? null, amount_cents: input.amount_cents, note: null }]
+}
+
+/** The mirrored category on the transaction row: only meaningful with one line. */
+export function primaryCategory(lines: TxLineInput[]): string | null {
+  return lines.length === 1 ? (lines[0].category_id ?? null) : null
+}
+
+export function writeLines(db: DatabaseSync, transactionId: string, lines: TxLineInput[]): void {
+  db.prepare('DELETE FROM transaction_lines WHERE transaction_id = ?').run(transactionId)
+  const insert = db.prepare(
+    'INSERT INTO transaction_lines (id, transaction_id, category_id, amount_cents, note, sort) VALUES (?, ?, ?, ?, ?, ?)',
+  )
+  lines.forEach((line, index) => {
+    insert.run(id(), transactionId, line.category_id ?? null, line.amount_cents, line.note ?? null, index)
+  })
+  db.prepare('UPDATE transactions SET category_id = ? WHERE id = ?').run(primaryCategory(lines), transactionId)
 }
 
 export function insertTransactionRaw(db: DatabaseSync, householdId: string, input: TxInput): string {
   const txId = id()
+  const lines = normalizeLines(input)
   db.prepare(
     `INSERT INTO transactions (id, household_id, kind, date, description, amount_cents, category_id, payer_user_id, trip_expense_id, recurring_id, import_hash, notes, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -27,7 +57,7 @@ export function insertTransactionRaw(db: DatabaseSync, householdId: string, inpu
     input.date,
     input.description,
     input.amount_cents,
-    input.category_id ?? null,
+    primaryCategory(lines),
     input.payer_user_id,
     input.trip_expense_id ?? null,
     input.recurring_id ?? null,
@@ -41,5 +71,6 @@ export function insertTransactionRaw(db: DatabaseSync, householdId: string, inpu
   for (const split of input.splits) {
     insertSplit.run(id(), txId, split.user_id, split.share_cents)
   }
+  writeLines(db, txId, lines)
   return txId
 }

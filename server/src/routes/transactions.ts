@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import type { BalancesResponse, Tx } from '@fold/shared'
 import { getBalances, getTransactions } from '../lib/queries.js'
-import { insertTransactionRaw } from '../lib/tx.js'
+import { insertTransactionRaw, normalizeLines, writeLines } from '../lib/tx.js'
 import { badRequest, id, monthRange, notFound } from '../lib/util.js'
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -13,6 +13,12 @@ const splitSchema = z.object({
   share_cents: z.number().int().min(0),
 })
 
+const lineSchema = z.object({
+  category_id: z.string().nullish(),
+  amount_cents: z.number().int().positive(),
+  note: z.string().max(200).nullish(),
+})
+
 const txBody = z.object({
   date: z.string().regex(DATE),
   description: z.string().trim().min(1).max(200),
@@ -20,6 +26,8 @@ const txBody = z.object({
   category_id: z.string().nullish(),
   payer_user_id: z.string(),
   splits: z.array(splitSchema).min(1),
+  /** Optional per-category breakdown; must add up to amount_cents. */
+  lines: z.array(lineSchema).min(1).max(30).optional(),
   notes: z.string().max(1000).nullish(),
 })
 
@@ -46,11 +54,22 @@ function validateTxParticipants(
   if (uniqueUsers.size !== body.splits.length) badRequest('Each person can appear in the split only once.')
   const total = body.splits.reduce((sum, s) => sum + s.share_cents, 0)
   if (total !== body.amount_cents) badRequest('Split shares must add up to the total amount.')
-  if (body.category_id) {
+
+  const categoryIds = [
+    ...(body.category_id ? [body.category_id] : []),
+    ...(body.lines ?? []).map((line) => line.category_id).filter((value): value is string => !!value),
+  ]
+  for (const categoryId of categoryIds) {
     const category = app.db
       .prepare('SELECT id FROM categories WHERE id = ? AND household_id = ?')
-      .get(body.category_id, householdId)
+      .get(categoryId, householdId)
     if (!category) badRequest('Unknown category.')
+  }
+  if (body.lines) {
+    const lineTotal = body.lines.reduce((sum, line) => sum + line.amount_cents, 0)
+    if (lineTotal !== body.amount_cents) {
+      badRequest('Category amounts must add up to the total amount.')
+    }
   }
 }
 
@@ -64,7 +83,17 @@ export function insertTransaction(
 
 export async function transactionRoutes(app: FastifyInstance): Promise<void> {
   app.get('/transactions', async (req): Promise<{ transactions: Tx[] }> => {
-    const query = z.object({ month: z.string().regex(MONTH).optional() }).parse(req.query)
+    const query = z
+      .object({
+        month: z.string().regex(MONTH).optional(),
+        uncategorized: z.coerce.boolean().optional(),
+      })
+      .parse(req.query)
+    if (query.uncategorized) {
+      return {
+        transactions: getTransactions(app.db, req.user.household_id, { uncategorizedOnly: true, limit: 300 }),
+      }
+    }
     const range = query.month ? monthRange(query.month) : {}
     return { transactions: getTransactions(app.db, req.user.household_id, range) }
   })
@@ -87,10 +116,10 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
     validateTxParticipants(app, req.user.household_id, body)
     app.db
       .prepare(
-        `UPDATE transactions SET date = ?, description = ?, amount_cents = ?, category_id = ?, payer_user_id = ?, notes = ?
+        `UPDATE transactions SET date = ?, description = ?, amount_cents = ?, payer_user_id = ?, notes = ?
          WHERE id = ?`,
       )
-      .run(body.date, body.description, body.amount_cents, body.category_id ?? null, body.payer_user_id, body.notes ?? null, txId)
+      .run(body.date, body.description, body.amount_cents, body.payer_user_id, body.notes ?? null, txId)
     app.db.prepare('DELETE FROM transaction_splits WHERE transaction_id = ?').run(txId)
     const insertSplit = app.db.prepare(
       'INSERT INTO transaction_splits (id, transaction_id, user_id, share_cents) VALUES (?, ?, ?, ?)',
@@ -98,6 +127,31 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
     for (const split of body.splits) {
       insertSplit.run(id(), txId, split.user_id, split.share_cents)
     }
+    writeLines(app.db, txId, normalizeLines({ ...body, kind: 'expense' } as never))
+    return { ok: true }
+  })
+
+  /**
+   * Assign categories without touching anything else — powers the
+   * "needs a category" queue after an import.
+   */
+  app.patch('/transactions/:id/categories', async (req) => {
+    const { id: txId } = req.params as { id: string }
+    const existing = app.db
+      .prepare('SELECT id, amount_cents FROM transactions WHERE id = ? AND household_id = ?')
+      .get(txId, req.user.household_id) as { id: string; amount_cents: number } | undefined
+    if (!existing) notFound('Transaction')
+    const { lines } = z.object({ lines: z.array(lineSchema).min(1).max(30) }).parse(req.body)
+    const total = lines.reduce((sum, line) => sum + line.amount_cents, 0)
+    if (total !== existing!.amount_cents) badRequest('Category amounts must add up to the total amount.')
+    for (const line of lines) {
+      if (!line.category_id) continue
+      const category = app.db
+        .prepare('SELECT id FROM categories WHERE id = ? AND household_id = ?')
+        .get(line.category_id, req.user.household_id)
+      if (!category) badRequest('Unknown category.')
+    }
+    writeLines(app.db, txId, lines)
     return { ok: true }
   })
 

@@ -19,8 +19,10 @@ export async function summaryRoutes(app: FastifyInstance): Promise<void> {
       .all(householdId, month) as { scope: string; owner_user_id: string | null; total: number }[]
     const spent = app.db
       .prepare(
-        `SELECT c.scope, c.owner_user_id, SUM(t.amount_cents) AS total
-         FROM transactions t JOIN categories c ON c.id = t.category_id
+        `SELECT c.scope, c.owner_user_id, SUM(tl.amount_cents) AS total
+         FROM transaction_lines tl
+         JOIN transactions t ON t.id = tl.transaction_id
+         JOIN categories c ON c.id = tl.category_id
          WHERE t.household_id = ? AND t.kind = 'expense' AND t.date >= ? AND t.date < ?
          GROUP BY c.scope, c.owner_user_id`,
       )

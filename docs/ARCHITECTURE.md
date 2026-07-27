@@ -46,20 +46,36 @@ Dockerfile / docker-compose.yml   single-container deploy; /data volume holds th
 ## Data model (v1)
 
 ```
-households ─┬─ users ── income_sources
-            ├─ categories ── allocations (per YYYY-MM month)
-            ├─ transactions ── transaction_splits        ← Splitwise math lives here
+households ─┬─ users ─┬─ income_sources
+            │         └─ month_incomes (per-month income override)
+            ├─ category_groups ── categories ── allocations (per YYYY-MM month)
+            │                     (rollover, target_type/cents/date)
+            ├─ transactions ─┬─ transaction_splits    ← who owes whom (Splitwise math)
+            │                └─ transaction_lines     ← which envelopes it hit
+            ├─ recurring_transactions · import_rules
+            ├─ accounts ── account_snapshots          ← net worth over time
             ├─ trips ─┬─ trip_categories (budget buckets)
             │         ├─ trip_stops (ordered; dates, lodging)
             │         └─ trip_expenses (planned + actual; → posted_transaction_id)
             └─ lists ── list_items (assignee, due date, price/url for wishlists)
 ```
 
+**Two independent split dimensions.** This is the key idea in the money model, and keeping them separate is what makes the messy real-world cases work:
+
+- `transaction_lines` answer *which envelopes does this purchase come out of* — a $240 Costco run is $104 Groceries + $76 Household + $60 Jake's Fun money. Lines are the source of truth for all category spending.
+- `transaction_splits` answer *who owes whom* — the same run might be Jake $160.80 / Sam $79.20.
+
+They interact only when you ask them to: the "by category" split mode derives person shares from the lines (a line in someone's personal envelope is theirs alone; shared lines split by the household rule). Everything else — budgets, trends, balances — reads whichever dimension it cares about and ignores the other.
+
+**Rollover is a fold, not a stored balance.** Each category's month-by-month ledger is folded forward in one pass: `available = carryover + allocated − spent`, and `carryover = rollover ? previous available : 0`. Nothing is denormalized, so toggling rollover or fixing an old transaction reprices history correctly with no migration or repair job. Overspend carries as a negative balance rather than silently vanishing.
+
+**Targets are derived too.** A monthly target suggests its own amount; a by-date target computes `ceil((target − balance so far) / months remaining)` so a trip fund tells you what to set aside this month.
+
 Key decisions:
 
 - **Money is integer cents.** No floats, ever. Splits must sum exactly to the amount (server-enforced); remainder cents are distributed deterministically.
 - **Balances are derived, not stored.** `net = Σ(paid) − Σ(owed shares)` per person, over all transactions. Settle-ups are just transactions of kind `settlement` (payer = who paid, single split = who received), so the same formula nets them out. No drift, no reconciliation bugs.
-- **Budget scopes.** A category is `shared` or `personal(owner)`. Shared allocations are funded by the household split rule (equal / income-proportional / custom %); the app computes each member's contribution and their leftover for personal budgeting. Spending counts against the category; the *split* on each transaction is what drives who-owes-whom. Those two axes are independent by design — you can have a shared category paid 100% by one person this month.
+- **Budget scopes.** A category is `shared` or `personal(owner)`. Shared allocations are funded by the household split rule (equal / income-proportional / custom %); the app computes each member's contribution and their leftover for personal budgeting. You can have a shared category paid 100% by one person this month — the funding rule and the payment are separate facts.
 - **Trips separate *planned* from *actual*.** Every trip expense has `planned_cents` (estimate) and nullable `actual_cents` (what it really cost). Buckets roll up both, so "remaining budget" is honest before and during the trip. Posting to the monthly budget copies the actual into a real transaction and links both ways (`trip_expense_id` ↔ `posted_transaction_id`) so nothing double-counts and deleting either side degrades gracefully.
 - **Months are `YYYY-MM` strings, dates are `YYYY-MM-DD`.** All-day semantics, no timezone gymnastics anywhere in v1.
 

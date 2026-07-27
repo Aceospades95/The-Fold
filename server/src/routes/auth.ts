@@ -30,13 +30,36 @@ const loginBody = z.object({
   password: z.string(),
 })
 
-const DEFAULT_SHARED_CATEGORIES = [
-  { name: 'Rent / Mortgage', emoji: '🏠' },
-  { name: 'Groceries', emoji: '🛒' },
-  { name: 'Utilities', emoji: '💡' },
-  { name: 'Dining out', emoji: '🍽️' },
-  { name: 'Travel', emoji: '✈️' },
-  { name: 'Household', emoji: '🧺' },
+const DEFAULT_GROUPS = [
+  { key: 'home', name: 'Home', emoji: '🏠' },
+  { key: 'food', name: 'Food', emoji: '🍽️' },
+  { key: 'transport', name: 'Getting around', emoji: '🚗' },
+  { key: 'life', name: 'Life & health', emoji: '💗' },
+  { key: 'goals', name: 'Goals & sinking funds', emoji: '🎯' },
+]
+
+/** A sensible starter budget: the bills everyone has, plus envelopes that save up. */
+const DEFAULT_SHARED_CATEGORIES: {
+  name: string
+  emoji: string
+  group: string
+  rollover?: 0 | 1
+}[] = [
+  { name: 'Rent / Mortgage', emoji: '🏠', group: 'home' },
+  { name: 'Utilities', emoji: '💡', group: 'home' },
+  { name: 'Internet & phone', emoji: '📶', group: 'home' },
+  { name: 'Household', emoji: '🧺', group: 'home' },
+  { name: 'Home repairs', emoji: '🔧', group: 'home', rollover: 1 },
+  { name: 'Groceries', emoji: '🛒', group: 'food' },
+  { name: 'Dining out', emoji: '🍜', group: 'food' },
+  { name: 'Gas', emoji: '⛽', group: 'transport' },
+  { name: 'Car insurance', emoji: '🛡️', group: 'transport', rollover: 1 },
+  { name: 'Car maintenance', emoji: '🔩', group: 'transport', rollover: 1 },
+  { name: 'Health', emoji: '🩺', group: 'life' },
+  { name: 'Pets', emoji: '🐾', group: 'life' },
+  { name: 'Gifts', emoji: '🎁', group: 'life', rollover: 1 },
+  { name: 'Travel', emoji: '✈️', group: 'goals', rollover: 1 },
+  { name: 'Emergency fund', emoji: '🏦', group: 'goals', rollover: 1 },
 ]
 
 const DEFAULT_PERSONAL_CATEGORIES = [
@@ -100,20 +123,35 @@ export async function publicAuthRoutes(app: FastifyInstance): Promise<void> {
         .run(userId, householdId, input.name, input.email, hashPassword(input.password), MEMBER_COLORS[index], now())
     })
 
-    DEFAULT_SHARED_CATEGORIES.forEach((cat, index) => {
+    const groupIds = new Map<string, string>()
+    DEFAULT_GROUPS.forEach((group, index) => {
+      const groupId = id()
+      groupIds.set(group.key, groupId)
       app.db
-        .prepare(
-          'INSERT INTO categories (id, household_id, name, emoji, scope, owner_user_id, sort) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        )
-        .run(id(), householdId, cat.name, cat.emoji, 'shared', null, index)
+        .prepare('INSERT INTO category_groups (id, household_id, name, emoji, sort) VALUES (?, ?, ?, ?, ?)')
+        .run(groupId, householdId, group.name, group.emoji, index)
+    })
+
+    const insertCategory = app.db.prepare(
+      `INSERT INTO categories (id, household_id, name, emoji, scope, owner_user_id, group_id, rollover, sort)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    DEFAULT_SHARED_CATEGORIES.forEach((cat, index) => {
+      insertCategory.run(
+        id(),
+        householdId,
+        cat.name,
+        cat.emoji,
+        'shared',
+        null,
+        groupIds.get(cat.group) ?? null,
+        cat.rollover ?? 0,
+        index,
+      )
     })
     for (const userId of userIds) {
       DEFAULT_PERSONAL_CATEGORIES.forEach((cat, index) => {
-        app.db
-          .prepare(
-            'INSERT INTO categories (id, household_id, name, emoji, scope, owner_user_id, sort) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          )
-          .run(id(), householdId, cat.name, cat.emoji, 'personal', userId, 100 + index)
+        insertCategory.run(id(), householdId, cat.name, cat.emoji, 'personal', userId, null, 0, 100 + index)
       })
     }
     DEFAULT_LISTS.forEach((list, index) => {

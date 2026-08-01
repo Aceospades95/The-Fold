@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import type { BudgetCategoryRow, CategoryDetailResponse, CategoryGroup, TargetType } from '@fold/shared'
+import type { BudgetCategoryRow, CategoryDetailResponse, CategoryGroup, SpendBucket, TargetType } from '@fold/shared'
+import { BUCKET_LABELS } from '@fold/shared'
 import { Archive, ArrowRightLeft } from 'lucide-react'
 import { api, useApi } from '../../api'
 import { useMe } from '../../App'
@@ -231,6 +232,22 @@ export default function CategoryDrawer({
                 </span>
               </span>
             </label>
+
+            <Field
+              label="Counts as"
+              hint="Feeds the 50/30/20 and pay-yourself-first views — needs vs wants vs money put away."
+            >
+              <Select
+                value={row.effective_bucket}
+                onChange={(e) => void patch({ bucket: e.target.value as SpendBucket })}
+              >
+                {(Object.entries(BUCKET_LABELS) as [SpendBucket, string][]).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
 
             <Field label="Target">
               <Select

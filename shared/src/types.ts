@@ -34,6 +34,8 @@ export interface HouseholdInfo {
   split_rule: SplitRule
   split_basis: SplitBasis
   custom_split: Record<string, number> | null
+  budget_method: BudgetMethod
+  method_config: MethodConfig
   calendar_path: string
   members: Member[]
 }
@@ -89,6 +91,38 @@ export interface IncomeSummaryResponse {
 }
 
 export type TargetType = 'none' | 'monthly' | 'by_date'
+export type BudgetMethod = 'envelope' | 'fifty_thirty_twenty' | 'pay_yourself_first' | 'tracker'
+export type SpendBucket = 'need' | 'want' | 'save'
+
+export interface MethodConfig {
+  needs_pct: number
+  wants_pct: number
+  savings_pct: number
+  /** Pay-yourself-first target; null derives it from savings_pct × income. */
+  savings_target_cents: number | null
+}
+
+export const BUCKET_LABELS: Record<SpendBucket, string> = {
+  need: 'Needs',
+  want: 'Wants',
+  save: 'Savings',
+}
+
+export const METHOD_LABELS: Record<BudgetMethod, string> = {
+  envelope: 'Envelopes (zero-based)',
+  fifty_thirty_twenty: '50 / 30 / 20',
+  pay_yourself_first: 'Pay yourself first',
+  tracker: 'Just track spending',
+}
+
+export interface BudgetBucketRow {
+  key: SpendBucket
+  label: string
+  pct: number
+  target_cents: number
+  spent_cents: number
+  allocated_cents: number
+}
 
 export interface CategoryGroup {
   id: string
@@ -108,12 +142,16 @@ export interface Category {
   target_cents: number | null
   target_type: TargetType
   target_date: string | null
+  /** Need/want/save classification driving the 50/30/20 & savings views. */
+  bucket: SpendBucket | null
   notes: string | null
   sort: number
   archived: 0 | 1
 }
 
 export interface BudgetCategoryRow extends Category {
+  /** bucket with the fallback applied (personal → want, shared → need). */
+  effective_bucket: SpendBucket
   /** Money assigned to this envelope for the month. */
   allocated_cents: number
   spent_cents: number
@@ -159,6 +197,9 @@ export interface BudgetResponse {
   month: string
   split_rule: SplitRule
   custom_split: Record<string, number> | null
+  budget_method: BudgetMethod
+  method_config: MethodConfig
+  buckets: BudgetBucketRow[]
   members: BudgetMemberRow[]
   groups: BudgetGroupRow[]
   categories: BudgetCategoryRow[]

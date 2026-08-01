@@ -9,6 +9,7 @@ import { Avatar, Button, Card, CardTitle, EmptyState, ProgressBar, cls } from '.
 import { CategoryRow, GroupSection, TableHeader } from '../components/budget/rows'
 import CategoryDrawer from '../components/budget/CategoryDrawer'
 import IncomeSplitCard from '../components/budget/IncomeSplitCard'
+import MethodHero from '../components/budget/MethodHero'
 import TrendsCard from '../components/budget/TrendsCard'
 import { IncomeOverrideModal, MoveMoneyModal, NewCategoryModal, NewGroupModal } from '../components/budget/modals'
 
@@ -190,6 +191,9 @@ export default function Budget() {
         </div>
       </div>
 
+      {data.budget_method !== 'envelope' && <MethodHero data={data} />}
+
+      {data.budget_method === 'envelope' && (
       <Card>
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
@@ -246,6 +250,7 @@ export default function Budget() {
           </div>
         )}
       </Card>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         {data.members.map((member) => (

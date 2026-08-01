@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
-import type { InviteInfo, MeResponse, SplitBasis, SplitRule } from '@fold/shared'
+import type { BudgetMethod, InviteInfo, MeResponse, SplitBasis, SplitRule } from '@fold/shared'
 import { hashPassword } from '../auth.js'
+import { resolveMethodConfig } from '../lib/budget.js'
 import { createInvite, formatInviteCode, redeemInviteCode } from '../lib/merge.js'
 import { getMembers } from '../lib/queries.js'
 import { badRequest, id, now } from '../lib/util.js'
@@ -13,6 +14,16 @@ const patchBody = z.object({
   split_rule: z.enum(['equal', 'proportional', 'custom']).optional(),
   split_basis: z.enum(['net', 'gross']).optional(),
   custom_split: z.record(z.string(), z.number().min(0).max(100)).nullable().optional(),
+  budget_method: z.enum(['envelope', 'fifty_thirty_twenty', 'pay_yourself_first', 'tracker']).optional(),
+  method_config: z
+    .object({
+      needs_pct: z.number().int().min(0).max(100),
+      wants_pct: z.number().int().min(0).max(100),
+      savings_pct: z.number().int().min(0).max(100),
+      savings_target_cents: z.number().int().min(0).nullable(),
+    })
+    .partial()
+    .optional(),
 })
 
 const memberBody = z.object({
@@ -27,13 +38,17 @@ interface HouseholdRow {
   split_rule: SplitRule
   split_basis: SplitBasis
   custom_split: string | null
+  budget_method: BudgetMethod
+  method_config: string | null
   calendar_token: string
 }
 
 export async function householdRoutes(app: FastifyInstance): Promise<void> {
   app.get('/me', async (req): Promise<MeResponse> => {
     const hh = app.db
-      .prepare('SELECT id, name, split_rule, split_basis, custom_split, calendar_token FROM households WHERE id = ?')
+      .prepare(
+        'SELECT id, name, split_rule, split_basis, custom_split, budget_method, method_config, calendar_token FROM households WHERE id = ?',
+      )
       .get(req.user.household_id) as unknown as HouseholdRow
     return {
       user: { id: req.user.id, name: req.user.name, email: req.user.email, color: req.user.color },
@@ -43,6 +58,8 @@ export async function householdRoutes(app: FastifyInstance): Promise<void> {
         split_rule: hh.split_rule,
         split_basis: hh.split_basis,
         custom_split: hh.custom_split ? JSON.parse(hh.custom_split) : null,
+        budget_method: hh.budget_method,
+        method_config: resolveMethodConfig(hh.method_config),
         calendar_path: `/api/calendar/${hh.calendar_token}/the-fold.ics`,
         members: getMembers(app.db, hh.id),
       },
@@ -68,6 +85,23 @@ export async function householdRoutes(app: FastifyInstance): Promise<void> {
       app.db
         .prepare('UPDATE households SET custom_split = ? WHERE id = ?')
         .run(body.custom_split ? JSON.stringify(body.custom_split) : null, req.user.household_id)
+    }
+    if (body.budget_method !== undefined) {
+      app.db
+        .prepare('UPDATE households SET budget_method = ? WHERE id = ?')
+        .run(body.budget_method, req.user.household_id)
+    }
+    if (body.method_config !== undefined) {
+      const current = app.db
+        .prepare('SELECT method_config FROM households WHERE id = ?')
+        .get(req.user.household_id) as { method_config: string | null }
+      const merged = { ...resolveMethodConfig(current.method_config), ...body.method_config }
+      if (merged.needs_pct + merged.wants_pct + merged.savings_pct !== 100) {
+        badRequest('Needs, wants, and savings percentages must add up to 100.')
+      }
+      app.db
+        .prepare('UPDATE households SET method_config = ? WHERE id = ?')
+        .run(JSON.stringify(merged), req.user.household_id)
     }
     return { ok: true }
   })

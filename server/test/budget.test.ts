@@ -324,6 +324,95 @@ describe('multi-category transactions', () => {
   })
 })
 
+describe('budgeting methods', () => {
+  it('defaults to envelope with 50/30/20 config and classified buckets', async () => {
+    const data = await budget()
+    expect(data.budget_method).toBe('envelope')
+    expect(data.method_config).toEqual({ needs_pct: 50, wants_pct: 30, savings_pct: 20, savings_target_cents: null })
+    expect(data.buckets.map((b: { key: string }) => b.key)).toEqual(['need', 'want', 'save'])
+    const travel = data.categories.find((c: { name: string; scope: string }) => c.name === 'Travel' && c.scope === 'shared')
+    const dining = data.categories.find((c: { name: string }) => c.name === 'Dining out')
+    const fun = data.categories.find((c: { name: string; scope: string }) => c.name === 'Fun money')
+    expect(travel.effective_bucket).toBe('save')
+    expect(dining.effective_bucket).toBe('want')
+    expect(fun.effective_bucket).toBe('want')
+  })
+
+  it('computes bucket targets from income and rolls spending into the right bucket', async () => {
+    // Income at this point: Jake 6000 + Sam 4000 = 10000/mo.
+    const dining = await categoryNamed('Dining out')
+    await spend(dayIn(month, 20), 12000, dining.id, 'Fancy dinner')
+    const data = await budget()
+    const want = data.buckets.find((b: { key: string }) => b.key === 'want')
+    expect(want.target_cents).toBe(Math.round(data.combined_income_cents * 0.3))
+    expect(want.spent_cents).toBeGreaterThanOrEqual(12000)
+    const save = data.buckets.find((b: { key: string }) => b.key === 'save')
+    const travel = await categoryNamed('Travel')
+    const fund = await categoryNamed('Emergency fund')
+    expect(save.allocated_cents).toBe(travel.allocated_cents + fund.allocated_cents)
+  })
+
+  it('re-buckets a category when its classification changes', async () => {
+    const dining = await categoryNamed('Dining out')
+    const before = (await budget()).buckets.find((b: { key: string }) => b.key === 'need')
+    await app.inject({
+      method: 'PATCH',
+      url: `/api/categories/${dining.id}`,
+      cookies: cookie,
+      payload: { bucket: 'need' },
+    })
+    const after = (await budget()).buckets.find((b: { key: string }) => b.key === 'need')
+    // dining.spent_cents was read after the fancy dinner, so it is the full amount that moves.
+    expect(after.spent_cents - before.spent_cents).toBe(dining.spent_cents)
+    await app.inject({
+      method: 'PATCH',
+      url: `/api/categories/${dining.id}`,
+      cookies: cookie,
+      payload: { bucket: 'want' },
+    })
+  })
+
+  it('switches methods and validates custom percentages', async () => {
+    await app.inject({
+      method: 'PATCH',
+      url: '/api/household',
+      cookies: cookie,
+      payload: { budget_method: 'fifty_thirty_twenty', method_config: { needs_pct: 60, wants_pct: 20, savings_pct: 20 } },
+    })
+    const data = await budget()
+    expect(data.budget_method).toBe('fifty_thirty_twenty')
+    expect(data.buckets.find((b: { key: string }) => b.key === 'need').pct).toBe(60)
+
+    const bad = await app.inject({
+      method: 'PATCH',
+      url: '/api/household',
+      cookies: cookie,
+      payload: { method_config: { needs_pct: 90 } },
+    })
+    expect(bad.statusCode).toBe(400)
+
+    await app.inject({
+      method: 'PATCH',
+      url: '/api/household',
+      cookies: cookie,
+      payload: {
+        budget_method: 'pay_yourself_first',
+        method_config: { savings_target_cents: 150000 },
+      },
+    })
+    const pyf = await budget()
+    expect(pyf.budget_method).toBe('pay_yourself_first')
+    expect(pyf.method_config.savings_target_cents).toBe(150000)
+
+    await app.inject({
+      method: 'PATCH',
+      url: '/api/household',
+      cookies: cookie,
+      payload: { budget_method: 'envelope' },
+    })
+  })
+})
+
 describe('category detail & trends', () => {
   it('returns six months of history and this month’s transactions', async () => {
     const groceries = await categoryNamed('Groceries')

@@ -92,8 +92,8 @@ const insertGroup = db.prepare(
 // --- categories ------------------------------------------------------------
 const cat: Record<string, string> = {}
 const insertCategory = db.prepare(
-  `INSERT INTO categories (id, household_id, name, emoji, scope, owner_user_id, group_id, rollover, target_cents, target_type, target_date, notes, sort)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  `INSERT INTO categories (id, household_id, name, emoji, scope, owner_user_id, group_id, rollover, target_cents, target_type, target_date, bucket, notes, sort)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 )
 
 interface SeedCategory {
@@ -102,6 +102,7 @@ interface SeedCategory {
   group: string
   monthly: number
   rollover?: 0 | 1
+  bucket?: 'need' | 'want' | 'save'
   target?: { type: 'monthly' | 'by_date'; cents: number; date?: string }
 }
 
@@ -113,7 +114,7 @@ const sharedCategories: SeedCategory[] = [
   { name: 'Household', emoji: '🧺', group: 'home', monthly: 12000 },
   { name: 'Home repairs', emoji: '🔧', group: 'home', monthly: 10000, rollover: 1 },
   { name: 'Groceries', emoji: '🛒', group: 'food', monthly: 70000, target: { type: 'monthly', cents: 70000 } },
-  { name: 'Dining out', emoji: '🍜', group: 'food', monthly: 30000 },
+  { name: 'Dining out', emoji: '🍜', group: 'food', monthly: 30000, bucket: 'want' },
   { name: 'Gas', emoji: '⛽', group: 'transport', monthly: 18000 },
   {
     name: 'Car insurance',
@@ -125,13 +126,14 @@ const sharedCategories: SeedCategory[] = [
   },
   { name: 'Car maintenance', emoji: '🔩', group: 'transport', monthly: 8000, rollover: 1 },
   { name: 'Health', emoji: '🩺', group: 'life', monthly: 12000 },
-  { name: 'Gifts', emoji: '🎁', group: 'life', monthly: 8000, rollover: 1 },
+  { name: 'Gifts', emoji: '🎁', group: 'life', monthly: 8000, rollover: 1, bucket: 'want' },
   {
     name: 'Travel',
     emoji: '✈️',
     group: 'goals',
     monthly: 60000,
     rollover: 1,
+    bucket: 'save',
     target: { type: 'by_date', cents: 270000, date: `${year}-09-12` },
   },
   {
@@ -140,6 +142,7 @@ const sharedCategories: SeedCategory[] = [
     group: 'goals',
     monthly: 40000,
     rollover: 1,
+    bucket: 'save',
     target: { type: 'monthly', cents: 40000 },
   },
 ]
@@ -159,6 +162,7 @@ sharedCategories.forEach((entry, index) => {
     entry.target?.cents ?? null,
     entry.target?.type ?? 'none',
     entry.target?.date ?? null,
+    entry.bucket ?? 'need',
     null,
     index,
   )
@@ -186,6 +190,7 @@ personalCategories.forEach((entry, index) => {
     null,
     'none',
     null,
+    'want',
     null,
     100 + index,
   )

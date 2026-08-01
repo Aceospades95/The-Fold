@@ -35,22 +35,28 @@ const DEFAULT_GROUPS = [
   { key: 'goals', name: 'Goals & sinking funds', emoji: '🎯' },
 ]
 
-const DEFAULT_SHARED_CATEGORIES: { name: string; emoji: string; group: string; rollover?: 0 | 1 }[] = [
+const DEFAULT_SHARED_CATEGORIES: {
+  name: string
+  emoji: string
+  group: string
+  rollover?: 0 | 1
+  bucket?: 'need' | 'want' | 'save'
+}[] = [
   { name: 'Rent / Mortgage', emoji: '🏠', group: 'home' },
   { name: 'Utilities', emoji: '💡', group: 'home' },
   { name: 'Internet & phone', emoji: '📶', group: 'home' },
   { name: 'Household', emoji: '🧺', group: 'home' },
   { name: 'Home repairs', emoji: '🔧', group: 'home', rollover: 1 },
   { name: 'Groceries', emoji: '🛒', group: 'food' },
-  { name: 'Dining out', emoji: '🍜', group: 'food' },
+  { name: 'Dining out', emoji: '🍜', group: 'food', bucket: 'want' },
   { name: 'Gas', emoji: '⛽', group: 'transport' },
   { name: 'Car insurance', emoji: '🛡️', group: 'transport', rollover: 1 },
   { name: 'Car maintenance', emoji: '🔩', group: 'transport', rollover: 1 },
   { name: 'Health', emoji: '🩺', group: 'life' },
   { name: 'Pets', emoji: '🐾', group: 'life' },
-  { name: 'Gifts', emoji: '🎁', group: 'life', rollover: 1 },
-  { name: 'Travel', emoji: '✈️', group: 'goals', rollover: 1 },
-  { name: 'Emergency fund', emoji: '🏦', group: 'goals', rollover: 1 },
+  { name: 'Gifts', emoji: '🎁', group: 'life', rollover: 1, bucket: 'want' },
+  { name: 'Travel', emoji: '✈️', group: 'goals', rollover: 1, bucket: 'save' },
+  { name: 'Emergency fund', emoji: '🏦', group: 'goals', rollover: 1, bucket: 'save' },
 ]
 
 const DEFAULT_PERSONAL_CATEGORIES = [
@@ -80,11 +86,20 @@ export function seedHouseholdDefaults(db: DatabaseSync, householdId: string): vo
     )
   })
   const insertCategory = db.prepare(
-    `INSERT INTO categories (id, household_id, name, emoji, scope, owner_user_id, group_id, rollover, sort)
-     VALUES (?, ?, ?, ?, 'shared', NULL, ?, ?, ?)`,
+    `INSERT INTO categories (id, household_id, name, emoji, scope, owner_user_id, group_id, rollover, bucket, sort)
+     VALUES (?, ?, ?, ?, 'shared', NULL, ?, ?, ?, ?)`,
   )
   DEFAULT_SHARED_CATEGORIES.forEach((cat, index) => {
-    insertCategory.run(id(), householdId, cat.name, cat.emoji, groupIds.get(cat.group) ?? null, cat.rollover ?? 0, index)
+    insertCategory.run(
+      id(),
+      householdId,
+      cat.name,
+      cat.emoji,
+      groupIds.get(cat.group) ?? null,
+      cat.rollover ?? 0,
+      cat.bucket ?? 'need',
+      index,
+    )
   })
   DEFAULT_LISTS.forEach((list, index) => {
     db.prepare('INSERT INTO lists (id, household_id, name, type, emoji, sort) VALUES (?, ?, ?, ?, ?, ?)').run(
@@ -101,8 +116,8 @@ export function seedHouseholdDefaults(db: DatabaseSync, householdId: string): vo
 /** Personal envelopes for one member of a household. */
 export function seedPersonalDefaults(db: DatabaseSync, householdId: string, userId: string): void {
   const insertCategory = db.prepare(
-    `INSERT INTO categories (id, household_id, name, emoji, scope, owner_user_id, group_id, rollover, sort)
-     VALUES (?, ?, ?, ?, 'personal', ?, NULL, 0, ?)`,
+    `INSERT INTO categories (id, household_id, name, emoji, scope, owner_user_id, group_id, rollover, bucket, sort)
+     VALUES (?, ?, ?, ?, 'personal', ?, NULL, 0, 'want', ?)`,
   )
   DEFAULT_PERSONAL_CATEGORIES.forEach((cat, index) => {
     insertCategory.run(id(), householdId, cat.name, cat.emoji, userId, 100 + index)

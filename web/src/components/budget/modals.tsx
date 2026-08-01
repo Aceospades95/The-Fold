@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import type { BudgetCategoryRow, BudgetResponse, CategoryGroup } from '@fold/shared'
+import type { BudgetCategoryRow, BudgetResponse, CategoryGroup, SpendBucket } from '@fold/shared'
+import { BUCKET_LABELS } from '@fold/shared'
 import { api } from '../../api'
 import { useMe } from '../../App'
 import { fmtMoney } from '../../format'
@@ -110,6 +111,7 @@ export function NewCategoryModal({
   const [owner, setOwner] = useState(defaultOwner ?? me.user.id)
   const [groupId, setGroupId] = useState(defaultGroupId ?? '')
   const [rollover, setRollover] = useState(false)
+  const [bucket, setBucket] = useState<SpendBucket | ''>('')
   const [target, setTarget] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -122,6 +124,7 @@ export function NewCategoryModal({
         owner_user_id: scope === 'personal' ? owner : null,
         group_id: scope === 'shared' ? groupId || null : null,
         rollover: rollover ? 1 : 0,
+        bucket: bucket || undefined,
         target_type: target ? 'monthly' : 'none',
         target_cents: target,
       })
@@ -170,9 +173,21 @@ export function NewCategoryModal({
             </Select>
           </Field>
         )}
-        <Field label="Monthly target (optional)" hint="Sets how much you aim to budget here each month.">
-          <MoneyInput cents={target} onCents={setTarget} />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Monthly target (optional)" hint="How much you aim to budget here.">
+            <MoneyInput cents={target} onCents={setTarget} />
+          </Field>
+          <Field label="Counts as" hint="For the 50/30/20 & savings views.">
+            <Select value={bucket} onChange={(e) => setBucket(e.target.value as SpendBucket | '')}>
+              <option value="">{scope === 'personal' ? 'Wants (default)' : 'Needs (default)'}</option>
+              {(Object.entries(BUCKET_LABELS) as [SpendBucket, string][]).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
         <label className="flex items-start gap-3 rounded-xl border border-slate-200 p-3">
           <input
             type="checkbox"

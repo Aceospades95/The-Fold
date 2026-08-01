@@ -292,12 +292,30 @@ CREATE TABLE invites (
 );
 `
 
+/**
+ * Budgeting methods. The envelope machinery stays the engine underneath;
+ * budget_method changes how the month is framed (50/30/20, pay-yourself-first,
+ * plain tracking), and categories carry a need/want/save bucket to feed those
+ * views. Existing categories are backfilled with sensible buckets.
+ */
+const SCHEMA_V6 = `
+ALTER TABLE households ADD COLUMN budget_method TEXT NOT NULL DEFAULT 'envelope';
+ALTER TABLE households ADD COLUMN method_config TEXT;
+ALTER TABLE categories ADD COLUMN bucket TEXT;
+
+UPDATE categories SET bucket = 'save' WHERE scope = 'shared' AND name IN ('Travel', 'Emergency fund');
+UPDATE categories SET bucket = 'want' WHERE scope = 'shared' AND name IN ('Dining out', 'Gifts');
+UPDATE categories SET bucket = 'want' WHERE scope = 'personal';
+UPDATE categories SET bucket = 'need' WHERE bucket IS NULL;
+`
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: SCHEMA_V1 },
   { version: 2, sql: SCHEMA_V2 },
   { version: 3, sql: SCHEMA_V3 },
   { version: 4, sql: SCHEMA_V4 },
   { version: 5, sql: SCHEMA_V5 },
+  { version: 6, sql: SCHEMA_V6 },
 ]
 
 export function openDb(path: string): DatabaseSync {

@@ -7,7 +7,7 @@ import { badRequest, id, notFound } from '../lib/util.js'
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
 const DATE = /^\d{4}-\d{2}-\d{2}$/
 
-const CATEGORY_COLUMNS = `id, name, emoji, scope, owner_user_id, group_id, rollover, target_cents, target_type, target_date, notes, sort, archived`
+const CATEGORY_COLUMNS = `id, name, emoji, scope, owner_user_id, group_id, rollover, target_cents, target_type, target_date, bucket, notes, sort, archived`
 
 const allocationBody = z.object({
   category_id: z.string(),
@@ -19,6 +19,7 @@ const targetFields = {
   target_type: z.enum(['none', 'monthly', 'by_date']).optional(),
   target_cents: z.number().int().min(0).nullish(),
   target_date: z.string().regex(DATE).nullish(),
+  bucket: z.enum(['need', 'want', 'save']).nullish(),
   group_id: z.string().nullish(),
   notes: z.string().max(500).nullish(),
 }
@@ -265,8 +266,8 @@ export async function budgetRoutes(app: FastifyInstance): Promise<void> {
     ).s
     app.db
       .prepare(
-        `INSERT INTO categories (id, household_id, name, emoji, scope, owner_user_id, group_id, rollover, target_cents, target_type, target_date, notes, sort)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO categories (id, household_id, name, emoji, scope, owner_user_id, group_id, rollover, target_cents, target_type, target_date, bucket, notes, sort)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         categoryId,
@@ -280,6 +281,7 @@ export async function budgetRoutes(app: FastifyInstance): Promise<void> {
         body.target_cents ?? null,
         body.target_type ?? 'none',
         body.target_date ?? null,
+        body.bucket ?? (body.scope === 'personal' ? 'want' : 'need'),
         body.notes ?? null,
         maxSort + 1,
       )
@@ -302,6 +304,7 @@ export async function budgetRoutes(app: FastifyInstance): Promise<void> {
     if (body.archived !== undefined) fields.archived = body.archived
     if (body.group_id !== undefined) fields.group_id = body.group_id ?? null
     if (body.rollover !== undefined) fields.rollover = body.rollover
+    if (body.bucket !== undefined) fields.bucket = body.bucket ?? null
     if (body.notes !== undefined) fields.notes = body.notes ?? null
     if (body.target_type !== undefined) {
       fields.target_type = body.target_type

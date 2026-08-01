@@ -1,20 +1,44 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
+  BudgetBucketRow,
   BudgetCategoryRow,
   BudgetGroupRow,
+  BudgetMethod,
   BudgetResponse,
   Category,
   CategoryDetailResponse,
   CategoryGroup,
+  MethodConfig,
   QuickFillStrategy,
+  SpendBucket,
   SplitRule,
   TrendsResponse,
 } from '@fold/shared'
-import { splitByWeights } from '@fold/shared'
+import { BUCKET_LABELS, splitByWeights } from '@fold/shared'
 import { getMembers, getTransactions } from './queries.js'
 import { currentMonth, daysInMonth, monthList, monthRange, monthsBetween, shiftMonth, today } from './util.js'
 
-const CATEGORY_COLUMNS = `id, name, emoji, scope, owner_user_id, group_id, rollover, target_cents, target_type, target_date, notes, sort, archived`
+const CATEGORY_COLUMNS = `id, name, emoji, scope, owner_user_id, group_id, rollover, target_cents, target_type, target_date, bucket, notes, sort, archived`
+
+export const DEFAULT_METHOD_CONFIG: MethodConfig = {
+  needs_pct: 50,
+  wants_pct: 30,
+  savings_pct: 20,
+  savings_target_cents: null,
+}
+
+export function resolveMethodConfig(raw: string | null): MethodConfig {
+  if (!raw) return { ...DEFAULT_METHOD_CONFIG }
+  try {
+    return { ...DEFAULT_METHOD_CONFIG, ...(JSON.parse(raw) as Partial<MethodConfig>) }
+  } catch {
+    return { ...DEFAULT_METHOD_CONFIG }
+  }
+}
+
+export function effectiveBucket(category: Pick<Category, 'bucket' | 'scope'>): SpendBucket {
+  return category.bucket ?? (category.scope === 'personal' ? 'want' : 'need')
+}
 
 interface MonthTotals {
   allocated: number
@@ -125,11 +149,13 @@ export function effectiveIncomes(
 
 export function computeBudget(db: DatabaseSync, householdId: string, month: string): BudgetResponse {
   const household = db
-    .prepare('SELECT split_rule, split_basis, custom_split FROM households WHERE id = ?')
+    .prepare('SELECT split_rule, split_basis, custom_split, budget_method, method_config FROM households WHERE id = ?')
     .get(householdId) as unknown as {
     split_rule: SplitRule
     split_basis: 'net' | 'gross'
     custom_split: string | null
+    budget_method: BudgetMethod
+    method_config: string | null
   }
 
   const categories = db
@@ -152,6 +178,7 @@ export function computeBudget(db: DatabaseSync, householdId: string, month: stri
     const avg3 = Math.round(recent.reduce((sum, value) => sum + value, 0) / 3)
     return {
       ...category,
+      effective_bucket: effectiveBucket(category),
       allocated_cents: entry.allocated,
       spent_cents: entry.spent,
       carryover_cents: entry.carryover,
@@ -238,10 +265,31 @@ export function computeBudget(db: DatabaseSync, householdId: string, month: stri
 
   const prevAllocated = [...allocations.keys()].some((key) => key.endsWith(`|${previousMonth}`))
 
+  const method_config = resolveMethodConfig(household.method_config)
+  const bucketDefs: { key: SpendBucket; pct: number }[] = [
+    { key: 'need', pct: method_config.needs_pct },
+    { key: 'want', pct: method_config.wants_pct },
+    { key: 'save', pct: method_config.savings_pct },
+  ]
+  const buckets: BudgetBucketRow[] = bucketDefs.map(({ key, pct }) => {
+    const inBucket = rows.filter((r) => r.effective_bucket === key)
+    return {
+      key,
+      label: BUCKET_LABELS[key],
+      pct,
+      target_cents: Math.round((combined_income_cents * pct) / 100),
+      spent_cents: inBucket.reduce((sum, r) => sum + r.spent_cents, 0),
+      allocated_cents: inBucket.reduce((sum, r) => sum + r.allocated_cents, 0),
+    }
+  })
+
   return {
     month,
     split_rule: household.split_rule,
     custom_split: custom,
+    budget_method: household.budget_method,
+    method_config,
+    buckets,
     members,
     groups: groupRows,
     categories: rows,

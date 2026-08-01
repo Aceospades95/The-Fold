@@ -13,6 +13,11 @@ The Fold exists because the pieces were scattered: Splitwise for splits, Mint fo
 
 ### The budget (the part we polished first)
 
+- **Four budgeting methods, one engine.** Pick how you want to budget in Settings and the Budget page reframes around it — switch anytime, nothing is lost:
+  - **Envelopes (zero-based)** — assign every dollar, watch each envelope's available balance (YNAB-style; the default).
+  - **50/30/20** — needs, wants, and savings held inside percentage lines of your take-home (percentages adjustable, e.g. 60/20/20). Every category carries a needs/wants/savings tag you can change.
+  - **Pay yourself first** — a monthly savings goal funded off the top ("put $X into savings envelopes"), then one guilt-free "spend the rest" number.
+  - **Just track spending** — no limits: income in, spending out, what you kept, top categories.
 - **Envelope budgeting built for two.** A starter budget arrives grouped into **Home / Food / Getting around / Life & health / Goals** — collapsible sections with their own subtotals.
 - **Budgeted → Spent → Available** on every row, so you always know what's actually left, not just what you planned.
 - **Rollover envelopes.** Turn it on for travel, car repairs, gifts — leftovers (and overspends) carry into next month. Turn it off for groceries and it resets monthly, the way you'd expect.

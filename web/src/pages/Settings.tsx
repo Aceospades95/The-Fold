@@ -1,6 +1,16 @@
 import { useState } from 'react'
-import type { ApiTokenInfo, HaConfig, IncomeSource, InviteInfo, PayDeduction, SplitBasis, SplitRule } from '@fold/shared'
-import { CADENCES, monthlyCents } from '@fold/shared'
+import type {
+  ApiTokenInfo,
+  BudgetMethod,
+  HaConfig,
+  IncomeSource,
+  InviteInfo,
+  MethodConfig,
+  PayDeduction,
+  SplitBasis,
+  SplitRule,
+} from '@fold/shared'
+import { CADENCES, METHOD_LABELS, monthlyCents } from '@fold/shared'
 import { Check, Copy, Link2, Moon, Monitor, Pencil, Plus, RefreshCw, Sun, Trash2, UserPlus } from 'lucide-react'
 import { api, useApi } from '../api'
 import { useMe } from '../App'
@@ -382,6 +392,113 @@ function PartnerCard() {
   )
 }
 
+const METHOD_DETAILS: { value: BudgetMethod; blurb: string }[] = [
+  { value: 'envelope', blurb: 'Assign every dollar to an envelope; each one tracks what’s left. The most control (YNAB-style).' },
+  { value: 'fifty_thirty_twenty', blurb: 'Keep needs, wants, and savings inside percentage lines of your take-home. Adjust the percentages to taste.' },
+  { value: 'pay_yourself_first', blurb: 'Fund savings first, then spend the rest guilt-free — one number to watch.' },
+  { value: 'tracker', blurb: 'No limits, just awareness: income in, spending out, and what you kept.' },
+]
+
+function BudgetMethodCard() {
+  const { me, reloadMe } = useMe()
+  const [method, setMethod] = useState<BudgetMethod>(me.household.budget_method)
+  const [config, setConfig] = useState<MethodConfig>({ ...me.household.method_config })
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const pctTotal = config.needs_pct + config.wants_pct + config.savings_pct
+  const pctInvalid = method === 'fifty_thirty_twenty' && pctTotal !== 100
+
+  async function save(): Promise<void> {
+    setError(null)
+    try {
+      await api.patch('/household', { budget_method: method, method_config: config })
+      await reloadMe()
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  return (
+    <Card>
+      <CardTitle>Budgeting method</CardTitle>
+      <p className="mb-3 text-sm text-slate-500">
+        Same money, same envelopes underneath — this changes how the Budget page frames your month. Switch anytime;
+        nothing is lost.
+      </p>
+      <div className="space-y-2">
+        {METHOD_DETAILS.map(({ value, blurb }) => (
+          <label
+            key={value}
+            className={cls(
+              'flex cursor-pointer items-start gap-3 rounded-xl border p-3',
+              method === value ? 'border-violet-300 bg-violet-50/60' : 'border-slate-200 hover:border-slate-300',
+            )}
+          >
+            <input
+              type="radio"
+              checked={method === value}
+              onChange={() => setMethod(value)}
+              className="mt-0.5 h-4 w-4 border-slate-300 text-violet-600 focus:ring-violet-500"
+            />
+            <span className="flex-1">
+              <span className="block text-sm font-medium">{METHOD_LABELS[value]}</span>
+              <span className="block text-xs text-slate-500">{blurb}</span>
+
+              {value === 'fifty_thirty_twenty' && method === 'fifty_thirty_twenty' && (
+                <span className="mt-2 flex flex-wrap items-center gap-3">
+                  {(
+                    [
+                      ['needs_pct', 'Needs'],
+                      ['wants_pct', 'Wants'],
+                      ['savings_pct', 'Savings'],
+                    ] as ['needs_pct' | 'wants_pct' | 'savings_pct', string][]
+                  ).map(([key, label]) => (
+                    <label key={key} className="flex items-center gap-1.5 text-xs text-slate-600">
+                      {label}
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={config[key]}
+                        onChange={(e) => setConfig({ ...config, [key]: Number(e.target.value) })}
+                        className="w-14 rounded-lg border border-slate-300 bg-white px-1.5 py-1 text-right text-xs"
+                      />
+                      %
+                    </label>
+                  ))}
+                  {pctInvalid && <span className="text-xs text-amber-600">adds up to {pctTotal}% — needs 100%</span>}
+                </span>
+              )}
+
+              {value === 'pay_yourself_first' && method === 'pay_yourself_first' && (
+                <span className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                  Monthly savings goal
+                  <span className="w-32">
+                    <MoneyInput
+                      cents={config.savings_target_cents}
+                      onCents={(cents) => setConfig({ ...config, savings_target_cents: cents })}
+                    />
+                  </span>
+                  <span className="text-slate-400">leave empty to use {config.savings_pct}% of take-home</span>
+                </span>
+              )}
+            </span>
+          </label>
+        ))}
+      </div>
+      <ErrorNote message={error} />
+      <div className="mt-3">
+        <Button variant="secondary" onClick={() => void save()} disabled={pctInvalid}>
+          {saved ? <Check size={14} /> : null} Save method
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
 function HomeAssistantCard() {
   const { data, reload } = useApi<HaConfig>('/integrations/ha')
   const [url, setUrl] = useState<string | null>(null)
@@ -687,6 +804,8 @@ export default function Settings() {
           })}
         </div>
       </Card>
+
+      <BudgetMethodCard />
 
       <Card>
         <CardTitle>How shared costs are split</CardTitle>

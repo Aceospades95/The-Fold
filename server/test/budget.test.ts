@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../src/app.js'
 import { openDb } from '../src/db.js'
 import { shiftMonth } from '../src/lib/util.js'
+import { createLinkedHousehold } from './helpers.js'
 
 let app: FastifyInstance
 let cookie: { fold_session: string }
@@ -13,13 +14,6 @@ const month = new Date().toISOString().slice(0, 7)
 const prev = shiftMonth(month, -1)
 const twoBack = shiftMonth(month, -2)
 const dayIn = (m: string, d: number) => `${m}-${String(d).padStart(2, '0')}`
-
-function sessionCookie(setCookie: string | string[] | undefined): { fold_session: string } {
-  const header = Array.isArray(setCookie) ? setCookie[0] : setCookie
-  const match = /fold_session=([^;]+)/.exec(header ?? '')
-  if (!match) throw new Error('no session cookie')
-  return { fold_session: match[1] }
-}
 
 async function get<T = any>(url: string): Promise<T> {
   const res = await app.inject({ method: 'GET', url, cookies: cookie })
@@ -63,19 +57,10 @@ async function spend(date: string, amount: number, categoryId: string | null, de
 
 beforeAll(async () => {
   app = await buildApp({ db: openDb(':memory:'), logger: false })
-  const setup = await app.inject({
-    method: 'POST',
-    url: '/api/setup',
-    payload: {
-      household_name: 'Budget House',
-      you: { name: 'Jake', email: 'jake@budget.dev', password: 'secret1' },
-      partner: { name: 'Sam', email: 'sam@budget.dev', password: 'secret2' },
-    },
-  })
-  cookie = sessionCookie(setup.headers['set-cookie'])
-  const me = await get('/api/me')
-  jakeId = me.user.id
-  samId = me.household.members.find((m: { id: string }) => m.id !== jakeId).id
+  const linked = await createLinkedHousehold(app, ['Jake', 'Sam'], 'budget.dev')
+  cookie = linked.cookie
+  jakeId = linked.aId
+  samId = linked.bId
   await app.inject({
     method: 'POST',
     url: '/api/income',

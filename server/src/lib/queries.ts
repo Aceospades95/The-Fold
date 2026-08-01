@@ -9,17 +9,19 @@ export function getMembers(db: DatabaseSync, householdId: string): Member[] {
     .all(householdId) as { id: string; name: string; email: string; color: string }[]
   const incomes = db
     .prepare(
-      `SELECT i.user_id, i.amount_cents, i.cadence
+      `SELECT i.user_id, i.amount_cents, i.gross_cents, i.cadence
        FROM income_sources i JOIN users u ON u.id = i.user_id
        WHERE u.household_id = ? AND i.active = 1`,
     )
-    .all(householdId) as { user_id: string; amount_cents: number; cadence: Cadence }[]
-  return users.map((u) => ({
-    ...u,
-    monthly_income_cents: incomes
-      .filter((i) => i.user_id === u.id)
-      .reduce((sum, i) => sum + monthlyCents(i.amount_cents, i.cadence), 0),
-  }))
+    .all(householdId) as { user_id: string; amount_cents: number; gross_cents: number | null; cadence: Cadence }[]
+  return users.map((u) => {
+    const mine = incomes.filter((i) => i.user_id === u.id)
+    return {
+      ...u,
+      monthly_income_cents: mine.reduce((sum, i) => sum + monthlyCents(i.amount_cents, i.cadence), 0),
+      monthly_gross_cents: mine.reduce((sum, i) => sum + monthlyCents(i.gross_cents ?? i.amount_cents, i.cadence), 0),
+    }
+  })
 }
 
 export function getTransactions(

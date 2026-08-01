@@ -5,7 +5,6 @@ import { CalendarRange, LayoutDashboard, ListChecks, LogOut, PiggyBank, ReceiptT
 import { api } from './api'
 import { Avatar, cls } from './ui'
 import Login from './pages/Login'
-import Setup from './pages/Setup'
 import Dashboard from './pages/Dashboard'
 import Budget from './pages/Budget'
 import Transactions from './pages/Transactions'
@@ -117,7 +116,7 @@ function Shell({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
-  const [phase, setPhase] = useState<'loading' | 'setup' | 'login' | 'app'>('loading')
+  const [phase, setPhase] = useState<'loading' | 'login' | 'app'>('loading')
   const [me, setMe] = useState<MeResponse | null>(null)
   const location = useLocation()
 
@@ -129,10 +128,9 @@ export default function App() {
 
   useEffect(() => {
     api
-      .get<{ needs_setup: boolean; user: UserPublic | null }>('/bootstrap')
+      .get<{ user: UserPublic | null }>('/bootstrap')
       .then((boot) => {
-        if (boot.needs_setup) setPhase('setup')
-        else if (!boot.user) setPhase('login')
+        if (!boot.user) setPhase('login')
         else return loadMe()
       })
       .catch(() => setPhase('login'))
@@ -141,7 +139,6 @@ export default function App() {
   if (phase === 'loading') {
     return <div className="flex min-h-screen items-center justify-center text-3xl">🪺</div>
   }
-  if (phase === 'setup') return <Setup onDone={() => void loadMe()} />
   if (phase === 'login' || !me) return <Login onDone={() => void loadMe()} />
 
   const context: MeContextValue = {

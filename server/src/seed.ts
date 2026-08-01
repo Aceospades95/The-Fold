@@ -47,11 +47,30 @@ insertUser.run(jake, hhId, 'Jake', 'jake@example.com', hashPassword('thefold'), 
 insertUser.run(sam, hhId, 'Sam', 'sam@example.com', hashPassword('thefold'), '#10b981', now())
 
 const insertIncome = db.prepare(
-  'INSERT INTO income_sources (id, user_id, name, amount_cents, cadence, notes) VALUES (?, ?, ?, ?, ?, ?)',
+  'INSERT INTO income_sources (id, user_id, name, amount_cents, gross_cents, deductions, cadence, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
 )
-insertIncome.run(id(), jake, 'Salary', 270000, 'biweekly', null)
-insertIncome.run(id(), sam, 'Salary', 205000, 'biweekly', null)
-insertIncome.run(id(), sam, 'Etsy shop', 15000, 'monthly', 'Averages out month to month')
+// Paychecks with the full gross → deductions → net picture (per paycheck).
+insertIncome.run(
+  id(), jake, 'Salary', 270000, 350000,
+  JSON.stringify([
+    { name: 'Federal tax', amount_cents: 45000, kind: 'tax' },
+    { name: 'State tax', amount_cents: 12000, kind: 'tax' },
+    { name: '401(k)', amount_cents: 21000, kind: 'pretax' },
+    { name: 'Health insurance', amount_cents: 2000, kind: 'pretax' },
+  ]),
+  'biweekly', null,
+)
+insertIncome.run(
+  id(), sam, 'Salary', 205000, 262000,
+  JSON.stringify([
+    { name: 'Federal tax', amount_cents: 32000, kind: 'tax' },
+    { name: 'State tax', amount_cents: 9000, kind: 'tax' },
+    { name: '403(b)', amount_cents: 13000, kind: 'pretax' },
+    { name: 'Health + dental', amount_cents: 3000, kind: 'pretax' },
+  ]),
+  'biweekly', null,
+)
+insertIncome.run(id(), sam, 'Etsy shop', 15000, null, null, 'monthly', 'Averages out month to month')
 
 // --- category groups -------------------------------------------------------
 const groups: Record<string, string> = {}

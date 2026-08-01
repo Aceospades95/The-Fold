@@ -166,7 +166,7 @@ export function SplitEditor({
             className={cls(
               'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
               mode === value
-                ? 'border-violet-600 bg-violet-600 text-white'
+                ? 'border-violet-600 bg-violet-600 text-on-accent'
                 : 'border-slate-300 bg-white text-slate-600 hover:border-slate-400',
             )}
           >

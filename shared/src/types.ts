@@ -5,6 +5,15 @@ export type TxKind = 'expense' | 'settlement'
 export type TripStatus = 'idea' | 'planned' | 'active' | 'done'
 export type ListType = 'todo' | 'chores' | 'grocery' | 'wishlist' | 'custom'
 
+export type SplitBasis = 'net' | 'gross'
+export type DeductionKind = 'tax' | 'pretax' | 'posttax'
+
+export interface PayDeduction {
+  name: string
+  amount_cents: number
+  kind: DeductionKind
+}
+
 export interface UserPublic {
   id: string
   name: string
@@ -13,13 +22,17 @@ export interface UserPublic {
 }
 
 export interface Member extends UserPublic {
+  /** Take-home (net) per month. */
   monthly_income_cents: number
+  /** Gross per month where paycheck details exist; falls back to net. */
+  monthly_gross_cents: number
 }
 
 export interface HouseholdInfo {
   id: string
   name: string
   split_rule: SplitRule
+  split_basis: SplitBasis
   custom_split: Record<string, number> | null
   calendar_path: string
   members: Member[]
@@ -34,10 +47,45 @@ export interface IncomeSource {
   id: string
   user_id: string
   name: string
+  /** Take-home (net) per paycheck. */
   amount_cents: number
+  gross_cents: number | null
+  deductions: PayDeduction[] | null
   cadence: Cadence
   active: 0 | 1
   notes: string | null
+}
+
+export interface InviteInfo {
+  code: string
+  expires_at: string
+}
+
+export interface IncomeSummaryMember {
+  user_id: string
+  name: string
+  color: string
+  gross_cents: number
+  tax_cents: number
+  pretax_cents: number
+  posttax_cents: number
+  net_cents: number
+  has_breakdown: boolean
+}
+
+export interface IncomeSplitOption {
+  key: 'equal' | 'net' | 'gross'
+  label: string
+  shares: { user_id: string; pct: number; contribution_cents: number }[]
+}
+
+export interface IncomeSummaryResponse {
+  month: string
+  shared_allocated_cents: number
+  members: IncomeSummaryMember[]
+  options: IncomeSplitOption[]
+  /** Which option is currently active ('custom' when custom percentages are set). */
+  active_key: 'equal' | 'net' | 'gross' | 'custom'
 }
 
 export type TargetType = 'none' | 'monthly' | 'by_date'

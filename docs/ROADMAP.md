@@ -2,6 +2,16 @@
 
 Phased so every stage ships something you two actually use, and the spine (household · money+splits · dates) never gets rebuilt.
 
+## ✅ Phase 0.5 — Accounts, paychecks, themes
+
+- [x] Self-serve signup: every person starts with their own solo budget.
+- [x] Invite codes: sign up with a code to join a household, or redeem later — a solo budget merges in as that person's personal envelopes (active data kept, untouched starter content dropped, no duplicates).
+- [x] Paycheck breakdowns: gross + deductions (tax / pre-tax / post-tax) per income source, net always derived.
+- [x] Split basis: income-proportional splitting on take-home or gross, with a live comparison panel (50/50 vs net vs gross, in % and $) on the Budget page.
+- [x] Theme system: light/dark/system + five accent palettes, per device.
+- [ ] Leave/unlink a household (reverse of merging) — needs a data-custody design first.
+- [ ] Password reset via email (depends on the SMTP driver in Phase 2).
+
 ## ✅ Phase 0 — Foundation (this branch)
 
 - Monorepo (Fastify + SQLite API, React SPA), single-container Docker deploy, GHCR publish action.

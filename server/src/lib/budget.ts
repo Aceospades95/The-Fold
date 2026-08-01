@@ -104,7 +104,7 @@ export function effectiveIncomes(
   db: DatabaseSync,
   householdId: string,
   month: string,
-): { id: string; name: string; color: string; income: number; override: number | null }[] {
+): { id: string; name: string; color: string; income: number; gross: number; override: number | null }[] {
   const members = getMembers(db, householdId)
   const overrides = db
     .prepare('SELECT user_id, amount_cents FROM month_incomes WHERE household_id = ? AND month = ?')
@@ -116,6 +116,8 @@ export function effectiveIncomes(
       name: m.name,
       color: m.color,
       income: override ?? m.monthly_income_cents,
+      // Overrides describe take-home; without paycheck details gross falls back to it.
+      gross: override ?? m.monthly_gross_cents,
       override,
     }
   })
@@ -123,8 +125,12 @@ export function effectiveIncomes(
 
 export function computeBudget(db: DatabaseSync, householdId: string, month: string): BudgetResponse {
   const household = db
-    .prepare('SELECT split_rule, custom_split FROM households WHERE id = ?')
-    .get(householdId) as unknown as { split_rule: SplitRule; custom_split: string | null }
+    .prepare('SELECT split_rule, split_basis, custom_split FROM households WHERE id = ?')
+    .get(householdId) as unknown as {
+    split_rule: SplitRule
+    split_basis: 'net' | 'gross'
+    custom_split: string | null
+  }
 
   const categories = db
     .prepare(`SELECT ${CATEGORY_COLUMNS} FROM categories WHERE household_id = ? AND archived = 0 ORDER BY sort, name`)
@@ -181,7 +187,9 @@ export function computeBudget(db: DatabaseSync, householdId: string, month: stri
         ? 1
         : household.split_rule === 'custom'
           ? Math.round((custom?.[m.id] ?? 100 / incomes.length) * 100)
-          : m.income,
+          : household.split_basis === 'gross'
+            ? m.gross
+            : m.income,
   }))
   const contributions = splitByWeights(shared_allocated_cents, weights)
 

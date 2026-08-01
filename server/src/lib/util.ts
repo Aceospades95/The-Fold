@@ -4,6 +4,8 @@ export function id(): string {
   return randomUUID()
 }
 
+export const MEMBER_COLORS = ['#8b5cf6', '#10b981', '#f59e0b', '#3b82f6']
+
 export function now(): string {
   return new Date().toISOString()
 }

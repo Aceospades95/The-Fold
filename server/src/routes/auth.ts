@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import type { DatabaseSync } from 'node:sqlite'
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import {
@@ -7,22 +8,18 @@ import {
   destroySession,
   hashPassword,
   requireAuth,
+  userForToken,
   verifyPassword,
 } from '../auth.js'
-import { badRequest, id, now } from '../lib/util.js'
+import { normalizeInviteCode, redeemInviteCode } from '../lib/merge.js'
+import { MEMBER_COLORS, badRequest, id, now } from '../lib/util.js'
 
-const MEMBER_COLORS = ['#8b5cf6', '#10b981', '#f59e0b', '#3b82f6']
-
-const userInput = z.object({
+const signupBody = z.object({
   name: z.string().trim().min(1).max(60),
   email: z.string().trim().email().toLowerCase(),
   password: z.string().min(6).max(200),
-})
-
-const setupBody = z.object({
-  household_name: z.string().trim().min(1).max(80),
-  you: userInput,
-  partner: userInput.optional(),
+  household_name: z.string().trim().min(1).max(80).optional(),
+  invite_code: z.string().trim().min(4).max(20).optional(),
 })
 
 const loginBody = z.object({
@@ -38,13 +35,7 @@ const DEFAULT_GROUPS = [
   { key: 'goals', name: 'Goals & sinking funds', emoji: '🎯' },
 ]
 
-/** A sensible starter budget: the bills everyone has, plus envelopes that save up. */
-const DEFAULT_SHARED_CATEGORIES: {
-  name: string
-  emoji: string
-  group: string
-  rollover?: 0 | 1
-}[] = [
+const DEFAULT_SHARED_CATEGORIES: { name: string; emoji: string; group: string; rollover?: 0 | 1 }[] = [
   { name: 'Rent / Mortgage', emoji: '🏠', group: 'home' },
   { name: 'Utilities', emoji: '💡', group: 'home' },
   { name: 'Internet & phone', emoji: '📶', group: 'home' },
@@ -74,6 +65,57 @@ const DEFAULT_LISTS = [
   { name: 'Wishlist', type: 'wishlist', emoji: '🌟' },
 ]
 
+/** Starter groups, shared envelopes, and lists for a brand-new household. */
+export function seedHouseholdDefaults(db: DatabaseSync, householdId: string): void {
+  const groupIds = new Map<string, string>()
+  DEFAULT_GROUPS.forEach((group, index) => {
+    const groupId = id()
+    groupIds.set(group.key, groupId)
+    db.prepare('INSERT INTO category_groups (id, household_id, name, emoji, sort) VALUES (?, ?, ?, ?, ?)').run(
+      groupId,
+      householdId,
+      group.name,
+      group.emoji,
+      index,
+    )
+  })
+  const insertCategory = db.prepare(
+    `INSERT INTO categories (id, household_id, name, emoji, scope, owner_user_id, group_id, rollover, sort)
+     VALUES (?, ?, ?, ?, 'shared', NULL, ?, ?, ?)`,
+  )
+  DEFAULT_SHARED_CATEGORIES.forEach((cat, index) => {
+    insertCategory.run(id(), householdId, cat.name, cat.emoji, groupIds.get(cat.group) ?? null, cat.rollover ?? 0, index)
+  })
+  DEFAULT_LISTS.forEach((list, index) => {
+    db.prepare('INSERT INTO lists (id, household_id, name, type, emoji, sort) VALUES (?, ?, ?, ?, ?, ?)').run(
+      id(),
+      householdId,
+      list.name,
+      list.type,
+      list.emoji,
+      index,
+    )
+  })
+}
+
+/** Personal envelopes for one member of a household. */
+export function seedPersonalDefaults(db: DatabaseSync, householdId: string, userId: string): void {
+  const insertCategory = db.prepare(
+    `INSERT INTO categories (id, household_id, name, emoji, scope, owner_user_id, group_id, rollover, sort)
+     VALUES (?, ?, ?, ?, 'personal', ?, NULL, 0, ?)`,
+  )
+  DEFAULT_PERSONAL_CATEGORIES.forEach((cat, index) => {
+    insertCategory.run(id(), householdId, cat.name, cat.emoji, userId, 100 + index)
+  })
+}
+
+export function nextMemberColor(db: DatabaseSync, householdId: string): string {
+  const used = (
+    db.prepare('SELECT color FROM users WHERE household_id = ?').all(householdId) as { color: string }[]
+  ).map((row) => row.color)
+  return MEMBER_COLORS.find((color) => !used.includes(color)) ?? MEMBER_COLORS[used.length % MEMBER_COLORS.length]
+}
+
 export function setCookie(reply: { setCookie: Function }, token: string, maxAgeSeconds: number): void {
   reply.setCookie(SESSION_COOKIE, token, {
     path: '/',
@@ -85,85 +127,53 @@ export function setCookie(reply: { setCookie: Function }, token: string, maxAgeS
 
 export async function publicAuthRoutes(app: FastifyInstance): Promise<void> {
   app.get('/bootstrap', async (req) => {
-    const count = (app.db.prepare('SELECT COUNT(*) AS c FROM households').get() as { c: number }).c
     const token = req.cookies[SESSION_COOKIE]
-    let user = null
-    if (token) {
-      const { userForToken } = await import('../auth.js')
-      user = userForToken(app.db, token)
-    }
+    const user = token ? userForToken(app.db, token) : null
     return {
-      needs_setup: count === 0,
       user: user ? { id: user.id, name: user.name, email: user.email, color: user.color } : null,
     }
   })
 
-  app.post('/setup', async (req, reply) => {
-    const body = setupBody.parse(req.body)
-    const existing = (app.db.prepare('SELECT COUNT(*) AS c FROM households').get() as { c: number }).c
-    if (existing > 0) badRequest('The Fold is already set up. Sign in instead.')
-    if (body.partner && body.partner.email === body.you.email) badRequest('You and your partner need different emails.')
+  app.post('/signup', async (req, reply) => {
+    const body = signupBody.parse(req.body)
+    const existing = app.db.prepare('SELECT id FROM users WHERE email = ?').get(body.email)
+    if (existing) badRequest('That email already has an account — sign in instead.')
 
-    const householdId = id()
-    app.db
-      .prepare(
-        'INSERT INTO households (id, name, split_rule, custom_split, calendar_token, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-      )
-      .run(householdId, body.household_name, 'proportional', null, randomBytes(16).toString('hex'), now())
+    const userId = id()
 
-    const memberInputs = body.partner ? [body.you, body.partner] : [body.you]
-    const userIds: string[] = []
-    memberInputs.forEach((input, index) => {
-      const userId = id()
-      userIds.push(userId)
+    if (body.invite_code) {
+      // Join the inviter's household directly — no solo household to merge later.
+      const { householdId } = redeemInviteCode(app.db, body.invite_code, null)
       app.db
         .prepare(
           'INSERT INTO users (id, household_id, name, email, password_hash, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
         )
-        .run(userId, householdId, input.name, input.email, hashPassword(input.password), MEMBER_COLORS[index], now())
-    })
-
-    const groupIds = new Map<string, string>()
-    DEFAULT_GROUPS.forEach((group, index) => {
-      const groupId = id()
-      groupIds.set(group.key, groupId)
+        .run(userId, householdId, body.name, body.email, hashPassword(body.password), nextMemberColor(app.db, householdId), now())
       app.db
-        .prepare('INSERT INTO category_groups (id, household_id, name, emoji, sort) VALUES (?, ?, ?, ?, ?)')
-        .run(groupId, householdId, group.name, group.emoji, index)
-    })
-
-    const insertCategory = app.db.prepare(
-      `INSERT INTO categories (id, household_id, name, emoji, scope, owner_user_id, group_id, rollover, sort)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    DEFAULT_SHARED_CATEGORIES.forEach((cat, index) => {
-      insertCategory.run(
-        id(),
-        householdId,
-        cat.name,
-        cat.emoji,
-        'shared',
-        null,
-        groupIds.get(cat.group) ?? null,
-        cat.rollover ?? 0,
-        index,
-      )
-    })
-    for (const userId of userIds) {
-      DEFAULT_PERSONAL_CATEGORIES.forEach((cat, index) => {
-        insertCategory.run(id(), householdId, cat.name, cat.emoji, 'personal', userId, null, 0, 100 + index)
-      })
+        .prepare('UPDATE invites SET used_by_user_id = ?, used_at = ? WHERE code = ?')
+        .run(userId, now(), normalizeInviteCode(body.invite_code))
+      seedPersonalDefaults(app.db, householdId, userId)
+    } else {
+      const householdId = id()
+      const firstName = body.name.split(/\s+/)[0]
+      app.db
+        .prepare(
+          'INSERT INTO households (id, name, split_rule, custom_split, calendar_token, created_at) VALUES (?, ?, ?, NULL, ?, ?)',
+        )
+        .run(householdId, body.household_name ?? `${firstName}’s budget`, 'proportional', randomBytes(16).toString('hex'), now())
+      app.db
+        .prepare(
+          'INSERT INTO users (id, household_id, name, email, password_hash, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(userId, householdId, body.name, body.email, hashPassword(body.password), MEMBER_COLORS[0], now())
+      seedHouseholdDefaults(app.db, householdId)
+      seedPersonalDefaults(app.db, householdId, userId)
     }
-    DEFAULT_LISTS.forEach((list, index) => {
-      app.db
-        .prepare('INSERT INTO lists (id, household_id, name, type, emoji, sort) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(id(), householdId, list.name, list.type, list.emoji, index)
-    })
 
-    const session = createSession(app.db, userIds[0])
+    const session = createSession(app.db, userId)
     setCookie(reply, session.token, session.maxAgeSeconds)
-    const user = memberInputs[0]
-    return { user: { id: userIds[0], name: user.name, email: user.email, color: MEMBER_COLORS[0] } }
+    const user = app.db.prepare('SELECT id, name, email, color FROM users WHERE id = ?').get(userId)
+    return { user }
   })
 
   app.post('/auth/login', async (req, reply) => {
@@ -191,3 +201,4 @@ export async function privateAuthRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true }
   })
 }
+

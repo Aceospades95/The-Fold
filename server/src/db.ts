@@ -269,11 +269,35 @@ INSERT INTO transaction_lines (id, transaction_id, category_id, amount_cents, no
 SELECT lower(hex(randomblob(16))), id, category_id, amount_cents, NULL, 0 FROM transactions;
 `
 
+/**
+ * Solo accounts + invite linking, and paycheck-aware income:
+ * - invites let one person's solo budget merge into their partner's household
+ * - income sources can carry a gross amount + deductions (taxes, 401k, …);
+ *   amount_cents remains the take-home (net) figure
+ * - split_basis decides whether income-proportional splitting uses net or gross
+ */
+const SCHEMA_V5 = `
+ALTER TABLE households ADD COLUMN split_basis TEXT NOT NULL DEFAULT 'net';
+ALTER TABLE income_sources ADD COLUMN gross_cents INTEGER;
+ALTER TABLE income_sources ADD COLUMN deductions TEXT;
+
+CREATE TABLE invites (
+  code TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id),
+  created_by_user_id TEXT NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_by_user_id TEXT REFERENCES users(id),
+  used_at TEXT
+);
+`
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: SCHEMA_V1 },
   { version: 2, sql: SCHEMA_V2 },
   { version: 3, sql: SCHEMA_V3 },
   { version: 4, sql: SCHEMA_V4 },
+  { version: 5, sql: SCHEMA_V5 },
 ]
 
 export function openDb(path: string): DatabaseSync {

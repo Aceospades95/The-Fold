@@ -1,11 +1,18 @@
 import { useState } from 'react'
-import type { ApiTokenInfo, HaConfig, IncomeSource, SplitRule } from '@fold/shared'
+import type { ApiTokenInfo, HaConfig, IncomeSource, InviteInfo, PayDeduction, SplitBasis, SplitRule } from '@fold/shared'
 import { CADENCES, monthlyCents } from '@fold/shared'
-import { Check, Copy, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Check, Copy, Link2, Moon, Monitor, Pencil, Plus, RefreshCw, Sun, Trash2, UserPlus } from 'lucide-react'
 import { api, useApi } from '../api'
 import { useMe } from '../App'
 import { fmtMoney } from '../format'
+import { ACCENTS, applyTheme, loadTheme, type ThemeMode, type ThemePref } from '../theme'
 import { Avatar, Button, Card, CardTitle, Chip, ErrorNote, Field, Modal, MoneyInput, Select, TextInput, cls } from '../ui'
+
+const DEDUCTION_KINDS: { value: PayDeduction['kind']; label: string }[] = [
+  { value: 'tax', label: 'Taxes' },
+  { value: 'pretax', label: 'Pre-tax (401k, insurance…)' },
+  { value: 'posttax', label: 'Post-tax' },
+]
 
 function IncomeModal({
   existing,
@@ -21,17 +28,43 @@ function IncomeModal({
   const { me } = useMe()
   const [userId, setUserId] = useState(existing?.user_id ?? defaultUserId)
   const [name, setName] = useState(existing?.name ?? '')
-  const [amount, setAmount] = useState<number | null>(existing?.amount_cents ?? null)
   const [cadence, setCadence] = useState(existing?.cadence ?? 'biweekly')
+  const [detailed, setDetailed] = useState(existing?.gross_cents != null)
+  const [net, setNet] = useState<number | null>(existing?.amount_cents ?? null)
+  const [gross, setGross] = useState<number | null>(existing?.gross_cents ?? null)
+  const [deductions, setDeductions] = useState<{ name: string; amount_cents: number | null; kind: PayDeduction['kind'] }[]>(
+    existing?.deductions?.map((d) => ({ ...d })) ?? [
+      { name: 'Federal tax', amount_cents: null, kind: 'tax' },
+      { name: '401(k)', amount_cents: null, kind: 'pretax' },
+    ],
+  )
   const [error, setError] = useState<string | null>(null)
 
+  const deductionTotal = deductions.reduce((sum, d) => sum + (d.amount_cents ?? 0), 0)
+  const computedNet = detailed && gross != null ? gross - deductionTotal : net
+  const valid =
+    name.trim().length > 0 &&
+    (detailed ? gross != null && gross > 0 && computedNet != null && computedNet >= 0 : net != null && net > 0)
+
   async function save(): Promise<void> {
-    if (!amount) return
+    if (!valid) return
+    const cleanDeductions = detailed
+      ? deductions
+          .filter((d) => d.name.trim() && (d.amount_cents ?? 0) > 0)
+          .map((d) => ({ name: d.name.trim(), amount_cents: d.amount_cents!, kind: d.kind }))
+      : null
+    const body = {
+      name: name.trim(),
+      cadence,
+      amount_cents: computedNet!,
+      gross_cents: detailed ? gross : null,
+      deductions: cleanDeductions,
+    }
     try {
       if (existing) {
-        await api.patch(`/income/${existing.id}`, { name: name.trim(), amount_cents: amount, cadence })
+        await api.patch(`/income/${existing.id}`, body)
       } else {
-        await api.post('/income', { user_id: userId, name: name.trim(), amount_cents: amount, cadence })
+        await api.post('/income', { user_id: userId, ...body })
       }
       onSaved()
     } catch (err) {
@@ -40,7 +73,7 @@ function IncomeModal({
   }
 
   return (
-    <Modal title={existing ? 'Edit income' : 'Add income'} onClose={onClose}>
+    <Modal title={existing ? 'Edit income' : 'Add income'} onClose={onClose} wide={detailed}>
       <div className="space-y-4">
         {!existing && (
           <Field label="Whose income?">
@@ -51,12 +84,9 @@ function IncomeModal({
             </Select>
           </Field>
         )}
-        <Field label="Source">
-          <TextInput value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="Salary, side gig…" />
-        </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Amount per paycheck">
-            <MoneyInput cents={amount} onCents={setAmount} />
+          <Field label="Source">
+            <TextInput value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="Salary, side gig…" />
           </Field>
           <Field label="How often">
             <Select value={cadence} onChange={(e) => setCadence(e.target.value as IncomeSource['cadence'])}>
@@ -66,61 +96,291 @@ function IncomeModal({
             </Select>
           </Field>
         </div>
-        {amount != null && amount > 0 && (
-          <p className="text-sm text-slate-600">≈ {fmtMoney(monthlyCents(amount, cadence))} per month</p>
+
+        <label className="flex items-start gap-3 rounded-xl border border-slate-200 p-3">
+          <input
+            type="checkbox"
+            checked={detailed}
+            onChange={(e) => setDetailed(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-violet-600"
+          />
+          <span>
+            <span className="block text-sm font-medium">Add the paycheck breakdown</span>
+            <span className="block text-xs text-slate-500">
+              Gross pay and deductions (taxes, 401k, insurance) — unlocks splitting by gross vs net.
+            </span>
+          </span>
+        </label>
+
+        {detailed ? (
+          <>
+            <Field label="Gross per paycheck">
+              <MoneyInput cents={gross} onCents={setGross} />
+            </Field>
+            <div>
+              <p className="mb-1.5 text-sm font-medium text-slate-700">Deductions per paycheck</p>
+              <div className="space-y-2">
+                {deductions.map((deduction, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <TextInput
+                      value={deduction.name}
+                      onChange={(e) =>
+                        setDeductions((prev) => prev.map((d, i) => (i === index ? { ...d, name: e.target.value } : d)))
+                      }
+                      placeholder="Federal tax"
+                      className="min-w-0 flex-1"
+                    />
+                    <Select
+                      value={deduction.kind}
+                      onChange={(e) =>
+                        setDeductions((prev) =>
+                          prev.map((d, i) => (i === index ? { ...d, kind: e.target.value as PayDeduction['kind'] } : d)),
+                        )
+                      }
+                      className="!w-40 shrink-0"
+                    >
+                      {DEDUCTION_KINDS.map((kind) => (
+                        <option key={kind.value} value={kind.value}>{kind.label}</option>
+                      ))}
+                    </Select>
+                    <div className="w-28 shrink-0">
+                      <MoneyInput
+                        cents={deduction.amount_cents}
+                        onCents={(cents) =>
+                          setDeductions((prev) => prev.map((d, i) => (i === index ? { ...d, amount_cents: cents } : d)))
+                        }
+                      />
+                    </div>
+                    <button
+                      onClick={() => setDeductions((prev) => prev.filter((_, i) => i !== index))}
+                      className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => setDeductions((prev) => [...prev, { name: '', amount_cents: null, kind: 'tax' }])}
+                className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-violet-600 hover:underline"
+              >
+                <Plus size={12} /> Add deduction
+              </button>
+            </div>
+            {gross != null && (
+              <p
+                className={cls(
+                  'rounded-lg px-3 py-2 text-sm',
+                  computedNet != null && computedNet >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700',
+                )}
+              >
+                Take-home: <strong>{fmtMoney(Math.max(0, computedNet ?? 0))}</strong> per paycheck ≈{' '}
+                <strong>{fmtMoney(monthlyCents(Math.max(0, computedNet ?? 0), cadence))}</strong> / month
+                {computedNet != null && computedNet < 0 && ' — deductions exceed gross'}
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <Field label="Take-home per paycheck" hint="What actually lands in the bank.">
+              <MoneyInput cents={net} onCents={setNet} />
+            </Field>
+            {net != null && net > 0 && (
+              <p className="text-sm text-slate-600">≈ {fmtMoney(monthlyCents(net, cadence))} per month</p>
+            )}
+          </>
         )}
+
         <ErrorNote message={error} />
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => void save()} disabled={!name.trim() || !amount}>Save</Button>
+          <Button onClick={() => void save()} disabled={!valid}>Save</Button>
         </div>
       </div>
     </Modal>
   )
 }
 
-function AddPartnerCard({ onAdded }: { onAdded: () => void }) {
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
+function AppearanceCard() {
+  const [pref, setPref] = useState<ThemePref>(loadTheme())
 
-  async function save(): Promise<void> {
+  function update(next: ThemePref): void {
+    setPref(next)
+    applyTheme(next)
+  }
+
+  const modes: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
+    { value: 'light', label: 'Light', icon: Sun },
+    { value: 'dark', label: 'Dark', icon: Moon },
+    { value: 'system', label: 'System', icon: Monitor },
+  ]
+
+  return (
+    <Card>
+      <CardTitle>Appearance</CardTitle>
+      <div className="flex flex-wrap items-center gap-6">
+        <div>
+          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Mode</p>
+          <div className="flex rounded-xl bg-slate-100 p-1">
+            {modes.map(({ value, label, icon: Icon }) => (
+              <button
+                key={value}
+                onClick={() => update({ ...pref, mode: value })}
+                className={cls(
+                  'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+                  pref.mode === value ? 'bg-white shadow-sm' : 'text-slate-500',
+                )}
+              >
+                <Icon size={14} /> {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Accent</p>
+          <div className="flex gap-2">
+            {ACCENTS.map((accent) => (
+              <button
+                key={accent.value}
+                title={accent.label}
+                onClick={() => update({ ...pref, accent: accent.value })}
+                className={cls(
+                  'flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-110',
+                  pref.accent === accent.value && 'ring-2 ring-slate-400 ring-offset-2',
+                )}
+                style={{ backgroundColor: accent.swatch }}
+              >
+                {pref.accent === accent.value && <Check size={14} className="text-on-accent" />}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="max-w-52 text-xs text-slate-400">Saved on this device — you can each pick your own look.</p>
+      </div>
+    </Card>
+  )
+}
+
+function PartnerCard() {
+  const { me, reloadMe } = useMe()
+  const invites = useApi<{ invites: InviteInfo[] }>('/invites')
+  const [redeemCode, setRedeemCode] = useState('')
+  const [copied, setCopied] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [manual, setManual] = useState(false)
+  const [manualForm, setManualForm] = useState({ name: '', email: '', password: '' })
+  const solo = me.household.members.length < 2
+
+  async function generate(): Promise<void> {
+    setError(null)
     try {
-      await api.post('/household/members', { name, email, password })
-      onAdded()
+      await api.post('/invites')
+      invites.reload()
     } catch (err) {
       setError((err as Error).message)
     }
   }
 
+  async function copy(code: string): Promise<void> {
+    await navigator.clipboard.writeText(code)
+    setCopied(code)
+    setTimeout(() => setCopied(null), 2000)
+  }
+
+  async function redeem(): Promise<void> {
+    setError(null)
+    try {
+      await api.post('/invites/redeem', { code: redeemCode })
+      // The whole household changed underneath us — reload everything.
+      window.location.reload()
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  async function addManual(): Promise<void> {
+    setError(null)
+    try {
+      await api.post('/household/members', manualForm)
+      await reloadMe()
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  if (!solo) return null
+
   return (
-    <div className="mt-3 space-y-3 rounded-xl border border-dashed border-slate-300 p-4">
-      <p className="text-sm font-medium text-slate-700">Add your partner</p>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
-        <TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
-        <TextInput type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Temp password" />
+    <Card>
+      <CardTitle>Link your partner</CardTitle>
+      <div className="grid gap-5 md:grid-cols-2">
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-slate-700">
+            <UserPlus size={14} className="mr-1 inline" /> Invite them
+          </p>
+          <p className="text-xs text-slate-500">
+            Send a code — they create their own login with it (or redeem it from their existing solo account) and your
+            budgets link into one household. Their solo history comes along as their personal envelopes.
+          </p>
+          {(invites.data?.invites ?? []).map((invite) => (
+            <div key={invite.code} className="flex items-center gap-2">
+              <code className="rounded-lg bg-violet-50 px-3 py-1.5 text-base font-bold tracking-widest text-violet-700">
+                {invite.code}
+              </code>
+              <Button variant="secondary" onClick={() => void copy(invite.code)}>
+                {copied === invite.code ? <Check size={14} /> : <Copy size={14} />}
+              </Button>
+              <span className="text-xs text-slate-400">expires {invite.expires_at.slice(0, 10)}</span>
+            </div>
+          ))}
+          {(invites.data?.invites ?? []).length === 0 && (
+            <Button variant="secondary" onClick={() => void generate()}>
+              Generate invite code
+            </Button>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-slate-700">
+            <Link2 size={14} className="mr-1 inline" /> Got a code yourself?
+          </p>
+          <p className="text-xs text-slate-500">
+            Enter your partner's code and this account joins their household — your budget here merges in as your
+            personal envelopes.
+          </p>
+          <div className="flex gap-2">
+            <TextInput
+              value={redeemCode}
+              onChange={(e) => setRedeemCode(e.target.value)}
+              placeholder="XXXX-XXXX"
+              className="w-40 uppercase tracking-widest"
+            />
+            <Button onClick={() => void redeem()} disabled={redeemCode.trim().length < 4}>
+              Link
+            </Button>
+          </div>
+        </div>
       </div>
+
+      <button onClick={() => setManual((v) => !v)} className="mt-4 text-xs text-slate-400 hover:text-slate-600">
+        {manual ? 'Hide' : 'Or create their login yourself →'}
+      </button>
+      {manual && (
+        <div className="mt-2 space-y-3 rounded-xl border border-dashed border-slate-300 p-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <TextInput value={manualForm.name} onChange={(e) => setManualForm({ ...manualForm, name: e.target.value })} placeholder="Name" />
+            <TextInput type="email" value={manualForm.email} onChange={(e) => setManualForm({ ...manualForm, email: e.target.value })} placeholder="Email" />
+            <TextInput type="password" value={manualForm.password} onChange={(e) => setManualForm({ ...manualForm, password: e.target.value })} placeholder="Temp password" />
+          </div>
+          <Button variant="secondary" onClick={() => void addManual()} disabled={!manualForm.name || !manualForm.email || manualForm.password.length < 6}>
+            <Plus size={14} /> Add partner
+          </Button>
+        </div>
+      )}
       <ErrorNote message={error} />
-      <Button variant="secondary" onClick={() => void save()} disabled={!name || !email || password.length < 6}>
-        <Plus size={14} /> Add partner
-      </Button>
-    </div>
+    </Card>
   )
 }
-
-const INTEGRATIONS: { name: string; emoji: string; status: 'live' | 'planned'; blurb: string }[] = [
-  { name: 'Google Calendar (feed)', emoji: '📅', status: 'live', blurb: 'Subscribe to the calendar feed below — trips, stops, and due dates show up automatically.' },
-  { name: 'CSV statement import', emoji: '🧾', status: 'live', blurb: 'Import bank/card exports on the Spending page — with auto-rules and duplicate detection.' },
-  { name: 'Net worth tracking', emoji: '📈', status: 'live', blurb: 'Accounts, investments, and debts with balance history — see the Net worth page.' },
-  { name: 'Google Calendar & Tasks (two-way)', emoji: '🔁', status: 'planned', blurb: 'OAuth per person: create real events on a shared calendar, sync assigned to-dos to Google Tasks.' },
-  { name: 'Email reminders', emoji: '📬', status: 'planned', blurb: 'Digest + nudges from your own Gmail or a dedicated app account via SMTP.' },
-  { name: 'Bank sync (SimpleFIN / Plaid)', emoji: '🏦', status: 'planned', blurb: 'Pull real transactions from your banks automatically — CSV import covers the gap today.' },
-  { name: 'Tandoor Recipes', emoji: '🍳', status: 'planned', blurb: 'Pick recipes for the week and push ingredients straight onto the grocery list.' },
-  { name: 'Plex + Overseerr date night', emoji: '🎬', status: 'planned', blurb: 'Queue a movie, dim the lights, dinner from Tandoor — one button.' },
-  { name: 'Shy Local', emoji: '💞', status: 'planned', blurb: 'Pull date ideas from your activity planner into the trip/date wishlist.' },
-]
 
 function HomeAssistantCard() {
   const { data, reload } = useApi<HaConfig>('/integrations/ha')
@@ -265,11 +525,24 @@ function ApiTokensCard() {
   )
 }
 
+const INTEGRATIONS: { name: string; emoji: string; status: 'live' | 'planned'; blurb: string }[] = [
+  { name: 'Google Calendar (feed)', emoji: '📅', status: 'live', blurb: 'Subscribe to the calendar feed below — trips, stops, and due dates show up automatically.' },
+  { name: 'CSV statement import', emoji: '🧾', status: 'live', blurb: 'Import bank/card exports on the Spending page — with auto-rules and duplicate detection.' },
+  { name: 'Net worth tracking', emoji: '📈', status: 'live', blurb: 'Accounts, investments, and debts with balance history — see the Net worth page.' },
+  { name: 'Google Calendar & Tasks (two-way)', emoji: '🔁', status: 'planned', blurb: 'OAuth per person: create real events on a shared calendar, sync assigned to-dos to Google Tasks.' },
+  { name: 'Email reminders', emoji: '📬', status: 'planned', blurb: 'Digest + nudges from your own Gmail or a dedicated app account via SMTP.' },
+  { name: 'Bank sync (SimpleFIN / Plaid)', emoji: '🏦', status: 'planned', blurb: 'Pull real transactions from your banks automatically — CSV import covers the gap today.' },
+  { name: 'Tandoor Recipes', emoji: '🍳', status: 'planned', blurb: 'Pick recipes for the week and push ingredients straight onto the grocery list.' },
+  { name: 'Plex + Overseerr date night', emoji: '🎬', status: 'planned', blurb: 'Queue a movie, dim the lights, dinner from Tandoor — one button.' },
+  { name: 'Shy Local', emoji: '💞', status: 'planned', blurb: 'Pull date ideas from your activity planner into the trip/date wishlist.' },
+]
+
 export default function Settings() {
   const { me, reloadMe } = useMe()
   const income = useApi<{ sources: IncomeSource[] }>('/income')
   const [householdName, setHouseholdName] = useState(me.household.name)
   const [rule, setRule] = useState<SplitRule>(me.household.split_rule)
+  const [basis, setBasis] = useState<SplitBasis>(me.household.split_basis)
   const [customSplit, setCustomSplit] = useState<Record<string, number>>(() => {
     const initial: Record<string, number> = {}
     for (const m of me.household.members) {
@@ -288,6 +561,7 @@ export default function Settings() {
     await api.patch('/household', {
       name: householdName,
       split_rule: rule,
+      split_basis: basis,
       custom_split: rule === 'custom' ? customSplit : null,
     })
     await reloadMe()
@@ -321,6 +595,9 @@ export default function Settings() {
         <p className="text-sm text-slate-500">Your household, your money rules, your integrations.</p>
       </div>
 
+      <AppearanceCard />
+      <PartnerCard />
+
       <Card>
         <CardTitle>Household</CardTitle>
         <div className="flex flex-wrap items-end gap-3">
@@ -344,7 +621,6 @@ export default function Settings() {
             </div>
           ))}
         </div>
-        {me.household.members.length < 2 && <AddPartnerCard onAdded={() => void reloadMe()} />}
       </Card>
 
       <Card>
@@ -358,7 +634,8 @@ export default function Settings() {
           Income
         </CardTitle>
         <p className="mb-3 text-sm text-slate-500">
-          Each person’s take-home pay. This drives the “split by income” rule and how much is free to allocate.
+          Each person’s paychecks. Add the gross &amp; deductions breakdown to unlock net-vs-gross splitting and the
+          full picture on the Budget page.
         </p>
         <div className="space-y-4">
           {me.household.members.map((member) => {
@@ -368,7 +645,11 @@ export default function Settings() {
                 <div className="mb-1.5 flex items-center gap-2">
                   <Avatar name={member.name} color={member.color} size={22} />
                   <span className="text-sm font-semibold">{member.name}</span>
-                  <span className="text-xs text-slate-500">{fmtMoney(member.monthly_income_cents)} / mo</span>
+                  <span className="text-xs text-slate-500">
+                    {fmtMoney(member.monthly_income_cents)} / mo take-home
+                    {member.monthly_gross_cents > member.monthly_income_cents &&
+                      ` · ${fmtMoney(member.monthly_gross_cents)} gross`}
+                  </span>
                 </div>
                 {sources.length === 0 ? (
                   <p className="ml-8 text-sm text-slate-400">No income added yet.</p>
@@ -376,7 +657,12 @@ export default function Settings() {
                   <ul className="ml-8 divide-y divide-slate-100">
                     {sources.map((source) => (
                       <li key={source.id} className="group flex items-center gap-2 py-1.5 text-sm">
-                        <span className="flex-1">{source.name}</span>
+                        <span className="flex-1">
+                          {source.name}
+                          {source.gross_cents != null && (
+                            <Chip className="ml-2 bg-violet-50 text-violet-700">breakdown</Chip>
+                          )}
+                        </span>
                         <span className="tabular-nums text-slate-500">
                           {fmtMoney(source.amount_cents)} {CADENCES.find((c) => c.value === source.cadence)?.label.toLowerCase()}
                         </span>
@@ -407,7 +693,7 @@ export default function Settings() {
         <div className="space-y-2">
           {(
             [
-              ['proportional', 'By income', 'Bigger paycheck, bigger share — proportional to monthly income.'],
+              ['proportional', 'By income', 'Bigger paycheck, bigger share — proportional to income.'],
               ['equal', '50 / 50', 'Straight down the middle, every month.'],
               ['custom', 'Custom', 'Set your own percentages.'],
             ] as [SplitRule, string, string][]
@@ -425,9 +711,29 @@ export default function Settings() {
                 onChange={() => setRule(value)}
                 className="mt-0.5 h-4 w-4 border-slate-300 text-violet-600 focus:ring-violet-500"
               />
-              <span>
+              <span className="flex-1">
                 <span className="block text-sm font-medium">{label}</span>
                 <span className="block text-xs text-slate-500">{blurb}</span>
+                {value === 'proportional' && rule === 'proportional' && (
+                  <span className="mt-2 flex gap-4">
+                    {(
+                      [
+                        ['net', 'on take-home (net)'],
+                        ['gross', 'on gross pay'],
+                      ] as [SplitBasis, string][]
+                    ).map(([b, blabel]) => (
+                      <label key={b} className="flex items-center gap-1.5 text-xs text-slate-600">
+                        <input
+                          type="radio"
+                          checked={basis === b}
+                          onChange={() => setBasis(b)}
+                          className="h-3.5 w-3.5 border-slate-300 text-violet-600"
+                        />
+                        {blabel}
+                      </label>
+                    ))}
+                  </span>
+                )}
               </span>
             </label>
           ))}
@@ -443,7 +749,7 @@ export default function Settings() {
                   max={100}
                   value={customSplit[m.id] ?? 0}
                   onChange={(e) => setCustomSplit({ ...customSplit, [m.id]: Number(e.target.value) })}
-                  className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-right text-sm"
+                  className="w-16 rounded-lg border border-slate-300 bg-white px-2 py-1 text-right text-sm"
                 />
                 %
               </label>

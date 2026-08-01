@@ -22,7 +22,7 @@ export function Button({
   className?: string
 }) {
   const styles = {
-    primary: 'bg-violet-600 text-white hover:bg-violet-700 shadow-sm',
+    primary: 'bg-violet-600 text-on-accent hover:bg-violet-700 shadow-sm',
     secondary: 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 shadow-sm',
     ghost: 'text-slate-600 hover:bg-slate-100',
     danger: 'bg-white text-red-600 border border-red-200 hover:bg-red-50',
@@ -77,7 +77,7 @@ export function Modal({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 pt-[8vh]" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-[8vh]" onClick={onClose}>
       <div
         className={cls('w-full rounded-2xl bg-white p-6 shadow-xl', wide ? 'max-w-2xl' : 'max-w-md')}
         onClick={(e) => e.stopPropagation()}
@@ -105,7 +105,7 @@ export function Field({ label, children, hint }: { label: string; children: Reac
 }
 
 export const inputCls =
-  'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200'
+  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-ink shadow-sm placeholder:text-slate-400 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200'
 
 export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={cls(inputCls, props.className)} />
@@ -158,7 +158,7 @@ export function MoneyInput({
 export function ProgressBar({
   value,
   max,
-  color = '#7c3aed',
+  color = 'var(--color-accent)',
   className,
 }: {
   value: number
@@ -188,7 +188,7 @@ export function Avatar({ name, color, size = 28 }: { name: string; color: string
   return (
     <span
       title={name}
-      className="inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white"
+      className="inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-on-accent"
       style={{ width: size, height: size, backgroundColor: color, fontSize: size * 0.4 }}
     >
       {initials}

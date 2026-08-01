@@ -8,6 +8,7 @@ import { currentMonth, fmtMoney, fmtMonth, shiftMonth } from '../format'
 import { Avatar, Button, Card, CardTitle, EmptyState, ProgressBar, cls } from '../ui'
 import { CategoryRow, GroupSection, TableHeader } from '../components/budget/rows'
 import CategoryDrawer from '../components/budget/CategoryDrawer'
+import IncomeSplitCard from '../components/budget/IncomeSplitCard'
 import TrendsCard from '../components/budget/TrendsCard'
 import { IncomeOverrideModal, MoveMoneyModal, NewCategoryModal, NewGroupModal } from '../components/budget/modals'
 
@@ -84,7 +85,7 @@ function MemberCard({
         <div className="mb-3 flex h-2 overflow-hidden rounded-full bg-slate-100">
           <div
             title="Share of the joint budget"
-            style={{ width: `${(member.contribution_cents / member.monthly_income_cents) * 100}%`, backgroundColor: '#7c3aed' }}
+            style={{ width: `${(member.contribution_cents / member.monthly_income_cents) * 100}%`, backgroundColor: 'var(--color-accent)' }}
           />
           <div
             title="Personal envelopes"
@@ -252,6 +253,8 @@ export default function Budget() {
         ))}
       </div>
 
+      <IncomeSplitCard month={month} onChanged={reload} />
+
       <div className="flex flex-wrap items-center gap-2">
         <AutoFillMenu onPick={(strategy) => void quickFill(strategy)} />
         {data.prev_month_has_allocations && (
@@ -358,7 +361,7 @@ export default function Budget() {
                 <CategoryRow
                   key={row.id}
                   row={row}
-                  accent="#7c3aed"
+                  accent="var(--color-accent)"
                   onAllocate={(cents) => void allocate(row.id, cents)}
                   onOpen={() => setDrawerId(row.id)}
                   onCover={() => setMoveTarget(row)}
@@ -373,7 +376,7 @@ export default function Budget() {
               <CategoryRow
                 key={row.id}
                 row={row}
-                accent="#7c3aed"
+                accent="var(--color-accent)"
                 onAllocate={(cents) => void allocate(row.id, cents)}
                 onOpen={() => setDrawerId(row.id)}
                 onCover={() => setMoveTarget(row)}

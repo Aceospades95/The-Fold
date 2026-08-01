@@ -3,36 +3,19 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../src/app.js'
 import { openDb } from '../src/db.js'
 import { materializeRecurring } from '../src/lib/recurring.js'
+import { createLinkedHousehold } from './helpers.js'
 
 let app: FastifyInstance
 let cookie: { fold_session: string }
 let jakeId: string
 let samId: string
 
-function sessionCookie(setCookie: string | string[] | undefined): { fold_session: string } {
-  const header = Array.isArray(setCookie) ? setCookie[0] : setCookie
-  const match = /fold_session=([^;]+)/.exec(header ?? '')
-  if (!match) throw new Error('no session cookie')
-  return { fold_session: match[1] }
-}
-
 beforeAll(async () => {
   app = await buildApp({ db: openDb(':memory:'), logger: false })
-  const setup = await app.inject({
-    method: 'POST',
-    url: '/api/setup',
-    payload: {
-      household_name: 'Test House',
-      you: { name: 'Jake', email: 'jake@test.dev', password: 'secret1' },
-      partner: { name: 'Sam', email: 'sam@test.dev', password: 'secret2' },
-    },
-  })
-  expect(setup.statusCode).toBe(200)
-  cookie = sessionCookie(setup.headers['set-cookie'])
-  const me = await app.inject({ method: 'GET', url: '/api/me', cookies: cookie })
-  const body = me.json()
-  jakeId = body.user.id
-  samId = body.household.members.find((m: { id: string }) => m.id !== jakeId).id
+  const linked = await createLinkedHousehold(app)
+  cookie = linked.cookie
+  jakeId = linked.aId
+  samId = linked.bId
 })
 
 afterAll(async () => {
@@ -42,17 +25,17 @@ afterAll(async () => {
 const month = new Date().toISOString().slice(0, 7)
 const today = new Date().toISOString().slice(0, 10)
 
-describe('auth & setup', () => {
+describe('auth', () => {
   it('rejects requests without a session', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/summary' })
     expect(res.statusCode).toBe(401)
   })
 
-  it('refuses a second setup', async () => {
+  it('refuses a duplicate email', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/api/setup',
-      payload: { household_name: 'X', you: { name: 'A', email: 'a@b.c', password: 'secret1' } },
+      url: '/api/signup',
+      payload: { name: 'Copycat', email: 'jake@test.dev', password: 'secret1' },
     })
     expect(res.statusCode).toBe(400)
   })

@@ -25,10 +25,10 @@ function NetWorthChart({ history }: { history: NetWorthPoint[] }) {
   return (
     <div>
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label="Net worth over time">
-        <polygon points={area} fill="#7c3aed" opacity="0.08" />
-        <polyline points={points} fill="none" stroke="#7c3aed" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+        <polygon points={area} fill="var(--color-accent)" opacity="0.08" />
+        <polyline points={points} fill="none" stroke="var(--color-accent)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
         {history.map((h, i) => (
-          <circle key={h.month} cx={x(i)} cy={y(h.net_cents)} r="3" fill="#7c3aed" />
+          <circle key={h.month} cx={x(i)} cy={y(h.net_cents)} r="3" fill="var(--color-accent)" />
         ))}
       </svg>
       <div className="mt-1 flex justify-between text-xs text-slate-400">

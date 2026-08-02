@@ -19,6 +19,7 @@ export interface UserPublic {
   name: string
   email: string
   color: string
+  is_admin: 0 | 1
 }
 
 export interface Member extends UserPublic {
@@ -235,6 +236,8 @@ export interface TrendMonth {
   spent_cents: number
   shared_spent_cents: number
   personal_spent_cents: number
+  /** Each member's share of the month's spending (from transaction splits). */
+  member_share_cents: Record<string, number>
 }
 
 export interface TrendsResponse {
@@ -263,15 +266,71 @@ export interface Tx {
   kind: TxKind
   date: string
   description: string
+  /** Negative = refund/credit: reduces category spending and reverses splits. */
   amount_cents: number
   /** The single line's category, or null when the purchase spans several. */
   category_id: string | null
   payer_user_id: string
+  account_id: string | null
+  merchant_id: string | null
+  import_batch_id: string | null
   trip_expense_id: string | null
   recurring_id: string | null
   notes: string | null
   splits: Split[]
   lines: TxLine[]
+}
+
+export interface Merchant {
+  id: string
+  name: string
+  domain: string | null
+  uses: number
+  top_category_id: string | null
+  last_date: string | null
+}
+
+export interface DuplicateTxInfo {
+  id: string
+  date: string
+  description: string
+  amount_cents: number
+  payer_user_id: string
+  imported: boolean
+}
+
+export interface DuplicatePair {
+  a: DuplicateTxInfo
+  b: DuplicateTxInfo
+}
+
+export interface ImportBatch {
+  id: string
+  account_id: string | null
+  account_name: string | null
+  filename: string | null
+  created_at: string
+  imported_count: number
+  total_cents: number
+}
+
+/** Remembered per-account statement settings so re-imports are one click. */
+export interface ImportProfile {
+  date_col: number
+  desc_col: number
+  amount_col: number
+  has_header: boolean
+  negative_is_spending: boolean
+  payer_user_id: string | null
+  default_mode: 'none' | 'equal' | 'income' | 'owed'
+  include_credits: boolean
+}
+
+export interface TxFilters {
+  q?: string
+  category_id?: string
+  account_id?: string
+  payer_user_id?: string
 }
 
 export type RecurringCadence = 'monthly' | 'yearly'

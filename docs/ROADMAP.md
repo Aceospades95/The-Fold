@@ -28,12 +28,21 @@ Phased so every stage ships something you two actually use, and the spine (house
 ## Phase 1 — Make the money real
 
 - [x] CSV import with a review-and-match screen (category + split per row, duplicate detection).
+- [x] OFX/QFX import: no column mapping, FITID-based dedupe, statement balance → account snapshot.
+- [x] Imports designate a source account, with per-account remembered profiles (mapping, sign, payer, split).
+- [x] Import batches with history and one-click undo.
+- [x] Credits/refunds as first-class transactions (negative amounts flow through budgets, balances, reports).
 - [x] Auto-rules ("Costco → Groceries, 50/50") applied at import.
 - [x] Recurring transactions (rent, subscriptions) that post themselves each month/year with catch-up.
 - [x] Multi-category transactions (line items) and a classify queue for anything imported bare.
-- [ ] OFX/QFX import alongside CSV.
+- [x] Transaction search + filters (text, category, account, payer) and per-account activity views.
+- [x] Reports: cash flow, savings rate, spending by group, movers, who-spent-it by split share.
+- [x] Stores (merchants) with domain-based logos, searchable picker with usual-category suggestions, import auto-matching.
+- [x] Duplicate detection: manual-entry warning, import pre-checks, and a lookalike-pair review with remembered dismissals.
+- [x] Instance admin: first account owns the server; invite-only signup with an admin toggle for open registration.
 - [ ] SimpleFIN Bridge sync: accounts, balances, transactions on a schedule.
 - [ ] Auto-rules that split across categories, not just one.
+- [ ] Reconciliation: tick imported transactions against the statement balance.
 - [ ] Settings encryption for stored credentials; rate limiting; cookie `Secure` when behind HTTPS.
 
 ## Phase 1b — Budget depth ✅

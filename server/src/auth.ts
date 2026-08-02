@@ -49,11 +49,11 @@ export function destroySession(db: DatabaseSync, token: string): void {
 export function userForToken(db: DatabaseSync, token: string): SessionUser | null {
   const row = db
     .prepare(
-      `SELECT u.id, u.name, u.email, u.color, u.household_id
+      `SELECT u.id, u.name, u.email, u.color, u.is_admin, u.household_id
        FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.token_hash = ? AND s.expires_at > ?`,
     )
-    .get(hashToken(token), now()) as SessionUser | undefined
+    .get(hashToken(token), now()) as unknown as SessionUser | undefined
   return row ?? null
 }
 

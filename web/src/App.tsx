@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import type { MeResponse, UserPublic } from '@fold/shared'
-import { CalendarRange, LayoutDashboard, ListChecks, LogOut, PiggyBank, ReceiptText, Settings as SettingsIcon, TrendingUp } from 'lucide-react'
+import { BarChart3, CalendarRange, LayoutDashboard, ListChecks, LogOut, PiggyBank, ReceiptText, Settings as SettingsIcon, TrendingUp } from 'lucide-react'
 import { api } from './api'
 import { Avatar, cls } from './ui'
 import Login from './pages/Login'
@@ -12,6 +12,7 @@ import Trips from './pages/Trips'
 import TripDetail from './pages/TripDetail'
 import Lists from './pages/Lists'
 import NetWorth from './pages/NetWorth'
+import Reports from './pages/Reports'
 import Settings from './pages/Settings'
 
 interface MeContextValue {
@@ -33,6 +34,7 @@ const NAV = [
   { to: '/budget', label: 'Budget', icon: PiggyBank },
   { to: '/transactions', label: 'Spending', icon: ReceiptText },
   { to: '/networth', label: 'Net worth', icon: TrendingUp },
+  { to: '/reports', label: 'Reports', icon: BarChart3 },
   { to: '/trips', label: 'Trips', icon: CalendarRange },
   { to: '/lists', label: 'Lists', icon: ListChecks },
   { to: '/settings', label: 'Settings', icon: SettingsIcon },
@@ -118,6 +120,7 @@ function Shell({ children }: { children: ReactNode }) {
 export default function App() {
   const [phase, setPhase] = useState<'loading' | 'login' | 'app'>('loading')
   const [me, setMe] = useState<MeResponse | null>(null)
+  const [boot, setBoot] = useState<{ has_users: boolean; signup_open: boolean }>({ has_users: true, signup_open: false })
   const location = useLocation()
 
   async function loadMe(): Promise<void> {
@@ -128,9 +131,10 @@ export default function App() {
 
   useEffect(() => {
     api
-      .get<{ user: UserPublic | null }>('/bootstrap')
-      .then((boot) => {
-        if (!boot.user) setPhase('login')
+      .get<{ user: UserPublic | null; has_users: boolean; signup_open: boolean }>('/bootstrap')
+      .then((result) => {
+        setBoot({ has_users: result.has_users, signup_open: result.signup_open })
+        if (!result.user) setPhase('login')
         else return loadMe()
       })
       .catch(() => setPhase('login'))
@@ -139,7 +143,7 @@ export default function App() {
   if (phase === 'loading') {
     return <div className="flex min-h-screen items-center justify-center text-3xl">🪺</div>
   }
-  if (phase === 'login' || !me) return <Login onDone={() => void loadMe()} />
+  if (phase === 'login' || !me) return <Login onDone={() => void loadMe()} hasUsers={boot.has_users} signupOpen={boot.signup_open} />
 
   const context: MeContextValue = {
     me,
@@ -159,6 +163,7 @@ export default function App() {
           <Route path="/budget" element={<Budget />} />
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/networth" element={<NetWorth />} />
+          <Route path="/reports" element={<Reports />} />
           <Route path="/trips" element={<Trips />} />
           <Route path="/trips/:id" element={<TripDetail />} />
           <Route path="/lists" element={<Lists />} />

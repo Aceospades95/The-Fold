@@ -224,9 +224,9 @@ describe('csv import', () => {
       ],
     }
     const first = (await app.inject({ method: 'POST', url: '/api/transactions/import', cookies: cookie, payload })).json()
-    expect(first).toEqual({ imported: 1, skipped: 0 })
+    expect(first).toMatchObject({ imported: 1, skipped: 0 })
     const second = (await app.inject({ method: 'POST', url: '/api/transactions/import', cookies: cookie, payload })).json()
-    expect(second).toEqual({ imported: 0, skipped: 1 })
+    expect(second).toMatchObject({ imported: 0, skipped: 1 })
   })
 })
 

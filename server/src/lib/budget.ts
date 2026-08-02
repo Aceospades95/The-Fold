@@ -352,6 +352,15 @@ export function computeTrends(db: DatabaseSync, householdId: string, monthCount:
     )
   }
 
+  const memberShares = db
+    .prepare(
+      `SELECT ts.user_id, substr(t.date, 1, 7) AS month, SUM(ts.share_cents) AS total
+       FROM transaction_splits ts JOIN transactions t ON t.id = ts.transaction_id
+       WHERE t.household_id = ? AND t.kind = 'expense' AND substr(t.date, 1, 7) >= ? AND substr(t.date, 1, 7) <= ?
+       GROUP BY ts.user_id, month`,
+    )
+    .all(householdId, from, to) as { user_id: string; month: string; total: number }[]
+
   const trendMonths = months.map((month) => {
     let allocated = 0
     let spent = 0
@@ -365,6 +374,10 @@ export function computeTrends(db: DatabaseSync, householdId: string, monthCount:
       if (category.scope === 'shared') sharedSpent += categorySpent
       else personalSpent += categorySpent
     }
+    const member_share_cents: Record<string, number> = {}
+    for (const share of memberShares.filter((s) => s.month === month)) {
+      member_share_cents[share.user_id] = share.total
+    }
     return {
       month,
       income_cents: incomeByMonth.get(month) ?? 0,
@@ -372,6 +385,7 @@ export function computeTrends(db: DatabaseSync, householdId: string, monthCount:
       spent_cents: spent,
       shared_spent_cents: sharedSpent,
       personal_spent_cents: personalSpent,
+      member_share_cents,
     }
   })
 

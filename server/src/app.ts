@@ -14,7 +14,9 @@ import { householdRoutes } from './routes/household.js'
 import { importRoutes } from './routes/importing.js'
 import { incomeRoutes } from './routes/income.js'
 import { integrationRoutes } from './routes/integrations.js'
+import { instanceRoutes } from './routes/instance.js'
 import { listRoutes } from './routes/lists.js'
+import { merchantRoutes } from './routes/merchants.js'
 import { netWorthRoutes } from './routes/networth.js'
 import { recurringRoutes } from './routes/recurring.js'
 import { summaryRoutes } from './routes/summary.js'
@@ -65,6 +67,8 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
       await priv.register(recurringRoutes)
       await priv.register(importRoutes)
       await priv.register(netWorthRoutes)
+      await priv.register(merchantRoutes)
+      await priv.register(instanceRoutes)
       await priv.register(integrationRoutes)
       await priv.register(tripRoutes)
       await priv.register(listRoutes)

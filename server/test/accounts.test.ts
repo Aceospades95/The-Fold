@@ -56,6 +56,8 @@ describe('invite linking', () => {
 
   it('merges a solo budget through redeem: activity becomes personal, junk is dropped', async () => {
     const a = await signup(app, { name: 'Jake', email: 'jake@merge.dev' })
+    // Second solo account needs open signup (the first account is the admin).
+    await app.inject({ method: 'PATCH', url: '/api/instance', cookies: a.cookie, payload: { open_signup: true } })
     const b = await signup(app, { name: 'Sam', email: 'sam@merge.dev' })
 
     // Sam uses her solo budget: spends in Groceries, budgets Travel.
@@ -113,6 +115,7 @@ describe('invite linking', () => {
 
   it('rejects bad, reused, and non-solo redemptions', async () => {
     const a = await signup(app, { name: 'Jake', email: 'jake@guard.dev' })
+    await app.inject({ method: 'PATCH', url: '/api/instance', cookies: a.cookie, payload: { open_signup: true } })
     const invite = (await app.inject({ method: 'POST', url: '/api/invites', cookies: a.cookie })).json()
 
     const bogus = await app.inject({

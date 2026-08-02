@@ -45,6 +45,8 @@ const insertUser = db.prepare(
 )
 insertUser.run(jake, hhId, 'Jake', 'jake@example.com', hashPassword('thefold'), '#8b5cf6', now())
 insertUser.run(sam, hhId, 'Sam', 'sam@example.com', hashPassword('thefold'), '#10b981', now())
+// First account on the instance is the server admin.
+db.prepare('UPDATE users SET is_admin = 1 WHERE id = ?').run(jake)
 
 const insertIncome = db.prepare(
   'INSERT INTO income_sources (id, user_id, name, amount_cents, gross_cents, deductions, cadence, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -438,17 +440,18 @@ const insertAccount = db.prepare(
 const insertSnapshot = db.prepare(
   'INSERT INTO account_snapshots (id, account_id, date, balance_cents) VALUES (?, ?, ?, ?)',
 )
-function account(name: string, type: string, owner: string | null, sortIndex: number, balances: number[]): void {
+function account(name: string, type: string, owner: string | null, sortIndex: number, balances: number[]): string {
   const accountId = id()
   insertAccount.run(accountId, hhId, name, type, owner, sortIndex, now())
   months.forEach((month, index) => insertSnapshot.run(id(), accountId, day(month, 15), balances[index]))
+  return accountId
 }
 account('Joint checking', 'checking', null, 0, [412000, 434500, 401200, 468900])
 account('Emergency fund', 'savings', null, 1, [1150000, 1200000, 1250000, 1300000])
 account('Jake — 401(k)', 'retirement', jake, 2, [4820000, 4975000, 4890000, 5120000])
 account('Sam — Roth IRA', 'retirement', sam, 3, [2210000, 2280000, 2265000, 2350000])
 account('Brokerage (joint)', 'investment', null, 4, [1560000, 1625000, 1580000, 1710000])
-account('Visa — shared card', 'credit', null, 5, [184300, 158900, 210500, 96200])
+const visaId = account('Visa — shared card', 'credit', null, 5, [184300, 158900, 210500, 96200])
 account('Car loan', 'loan', null, 6, [1420000, 1385000, 1350000, 1315000])
 
 // --- recurring -------------------------------------------------------------
@@ -467,6 +470,43 @@ insertRecurring.run(
   JSON.stringify([{ user_id: jake, share_cents: 4000 }, { user_id: sam, share_cents: 4000 }]),
   'monthly', 8, day(nextMonth, 8), null, now(),
 )
+
+// --- stores (merchants) with logo domains ----------------------------------
+const insertMerchant = db.prepare(
+  'INSERT INTO merchants (id, household_id, name, domain, created_at) VALUES (?, ?, ?, ?, ?)',
+)
+const merchants: Record<string, string> = {}
+;[
+  ['Costco', 'costco.com'],
+  ['Trader Joe’s', 'traderjoes.com'],
+  ['Shell', 'shell.com'],
+  ['Target', 'target.com'],
+  ['Amazon', 'amazon.com'],
+  ['Blue Bottle Coffee', 'bluebottlecoffee.com'],
+].forEach(([name, domain]) => {
+  const merchantId = id()
+  merchants[name] = merchantId
+  insertMerchant.run(merchantId, hhId, name, domain, now())
+})
+const linkMerchant = db.prepare(
+  `UPDATE transactions SET merchant_id = ? WHERE household_id = ? AND description LIKE ?`,
+)
+linkMerchant.run(merchants['Costco'], hhId, '%Costco%')
+linkMerchant.run(merchants['Trader Joe’s'], hhId, '%Trader Joe%')
+linkMerchant.run(merchants['Shell'], hhId, '%SHELL%')
+linkMerchant.run(merchants['Target'], hhId, '%Target%')
+linkMerchant.run(merchants['Target'], hhId, '%TARGET%')
+linkMerchant.run(merchants['Amazon'], hhId, '%AMZN%')
+linkMerchant.run(merchants['Blue Bottle Coffee'], hhId, '%BLUE BOTTLE%')
+
+// The three unclassified transactions arrived via a Visa statement import.
+const batchId = id()
+db.prepare(
+  'INSERT INTO import_batches (id, household_id, account_id, filename, created_at, imported_count, total_cents) VALUES (?, ?, ?, ?, ?, 3, 17526)',
+).run(batchId, hhId, visaId, 'visa-statement.csv', now())
+db.prepare(
+  `UPDATE transactions SET account_id = ?, import_batch_id = ? WHERE household_id = ? AND description IN ('AMZN MKTP US*2A45BX9', 'SQ *BLUE BOTTLE COFFEE', 'POS DEBIT 4412 TARGET')`,
+).run(visaId, batchId, hhId)
 
 console.log('Seeded demo household with four months of budget history:')
 console.log('  jake@example.com / thefold')

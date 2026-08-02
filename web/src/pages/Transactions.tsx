@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import type { BalancesResponse, Category, ImportRule, Tx } from '@fold/shared'
-import { ArrowLeftRight, ChevronLeft, ChevronRight, Plus, Repeat, Split as SplitIcon, Tag, Upload } from 'lucide-react'
+import type { BalancesResponse, Category, DuplicatePair, ImportRule, Merchant, NetWorthResponse, Tx } from '@fold/shared'
+import { ArrowLeftRight, ChevronLeft, ChevronRight, Copy, Plus, Repeat, Search, Split as SplitIcon, Store, Tag, Upload, X } from 'lucide-react'
 import { api, useApi } from '../api'
 import { useMe } from '../App'
 import { currentMonth, fmtDate, fmtDateFull, fmtMoney, fmtMonth, shiftMonth, todayStr } from '../format'
@@ -9,6 +9,7 @@ import { Avatar, Button, Card, Chip, EmptyState, ErrorNote, Field, Modal, MoneyI
 import ImportWizard from '../components/ImportWizard'
 import RecurringModal from '../components/RecurringModal'
 import TxModal, { CategorySelect } from '../components/TxModal'
+import { DuplicatesModal, MerchantLogo, StoresModal } from '../components/merchants'
 
 function SettleModal({ balances, onClose, onSaved }: { balances: BalancesResponse; onClose: () => void; onSaved: () => void }) {
   const { me } = useMe()
@@ -179,20 +180,50 @@ export default function Transactions() {
   const [searchParams, setSearchParams] = useSearchParams()
   const needsCategory = searchParams.get('needs') === 'category'
   const [month, setMonth] = useState(currentMonth())
-  const transactions = useApi<{ transactions: Tx[] }>(`/transactions?month=${month}`)
+  const [q, setQ] = useState('')
+  const [debouncedQ, setDebouncedQ] = useState('')
+  const [filterCategory, setFilterCategory] = useState('')
+  const [filterAccount, setFilterAccount] = useState(searchParams.get('account') ?? '')
+  const [filterPayer, setFilterPayer] = useState('')
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQ(q.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [q])
+
+  const filtering = !!(debouncedQ || filterCategory || filterAccount || filterPayer)
+  const txQuery = useMemo(() => {
+    const params = new URLSearchParams()
+    // A search spans all time; otherwise stay in the picked month.
+    if (!filtering) params.set('month', month)
+    if (debouncedQ) params.set('q', debouncedQ)
+    if (filterCategory) params.set('category', filterCategory)
+    if (filterAccount) params.set('account', filterAccount)
+    if (filterPayer) params.set('payer', filterPayer)
+    return params.toString()
+  }, [month, debouncedQ, filterCategory, filterAccount, filterPayer, filtering])
+  const transactions = useApi<{ transactions: Tx[] }>(`/transactions?${txQuery}`)
   const balances = useApi<BalancesResponse>('/balances')
   const categoriesQuery = useApi<{ categories: Category[] }>('/categories')
+  const networth = useApi<NetWorthResponse>('/networth')
+  const merchantsQuery = useApi<{ merchants: Merchant[] }>('/merchants')
+  const duplicatesQuery = useApi<{ pairs: DuplicatePair[] }>('/transactions/duplicates')
   const rulesQuery = useApi<{ rules: ImportRule[] }>('/import-rules')
   const uncategorizedQuery = useApi<{ transactions: Tx[] }>(needsCategory ? '/transactions?uncategorized=1' : null)
   const [editing, setEditing] = useState<Tx | null>(null)
   const [adding, setAdding] = useState(false)
   const [settling, setSettling] = useState(false)
   const [managingRecurring, setManagingRecurring] = useState(false)
+  const [managingStores, setManagingStores] = useState(false)
+  const [reviewingDuplicates, setReviewingDuplicates] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importNote, setImportNote] = useState<string | null>(null)
 
   const members = me.household.members
   const categories = categoriesQuery.data?.categories ?? []
+  const merchants = merchantsQuery.data?.merchants ?? []
+  const merchantById = useMemo(() => new Map(merchants.map((m) => [m.id, m])), [merchants])
+  const duplicatePairs = duplicatesQuery.data?.pairs ?? []
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
 
   const grouped = useMemo(() => {
@@ -208,6 +239,7 @@ export default function Transactions() {
   function reloadAll(): void {
     transactions.reload()
     balances.reload()
+    duplicatesQuery.reload()
     if (needsCategory) uncategorizedQuery.reload()
   }
 
@@ -246,6 +278,9 @@ export default function Transactions() {
           <Button variant="secondary" onClick={() => setManagingRecurring(true)}>
             <Repeat size={15} /> Recurring
           </Button>
+          <Button variant="secondary" onClick={() => setManagingStores(true)}>
+            <Store size={15} /> Stores
+          </Button>
           <Button variant="secondary" onClick={() => setSettling(true)}>
             <ArrowLeftRight size={15} /> Settle up
           </Button>
@@ -271,6 +306,91 @@ export default function Transactions() {
           </div>
         </Card>
       )}
+
+      {duplicatePairs.length > 0 && (
+        <button onClick={() => setReviewingDuplicates(true)} className="block w-full text-left">
+          <Card className="flex items-center justify-between bg-amber-50/70 !py-3 transition-colors hover:bg-amber-100/70">
+            <p className="flex items-center gap-2 text-sm text-amber-900">
+              <Copy size={15} />
+              <span>
+                <strong>{duplicatePairs.length}</strong> possible duplicate {duplicatePairs.length === 1 ? 'pair' : 'pairs'} —
+                same amount within a few days.
+              </span>
+            </p>
+            <span className="shrink-0 text-xs font-medium text-amber-800">Review →</span>
+          </Card>
+        </button>
+      )}
+
+      <Card className="space-y-2.5 !py-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-44 flex-1">
+            <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search all spending…"
+              className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-sm placeholder:text-slate-400 focus:border-violet-500 focus:outline-none"
+            />
+          </div>
+          <select
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
+            className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+          >
+            <option value="">All categories</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.emoji ? `${c.emoji} ` : ''}
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={filterAccount}
+            onChange={(e) => setFilterAccount(e.target.value)}
+            className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+          >
+            <option value="">All accounts</option>
+            {(networth.data?.accounts ?? []).map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={filterPayer}
+            onChange={(e) => setFilterPayer(e.target.value)}
+            className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+          >
+            <option value="">Paid by anyone</option>
+            {members.map((m) => (
+              <option key={m.id} value={m.id}>
+                Paid by {m.name}
+              </option>
+            ))}
+          </select>
+          {filtering && (
+            <button
+              onClick={() => {
+                setQ('')
+                setFilterCategory('')
+                setFilterAccount('')
+                setFilterPayer('')
+                setSearchParams({})
+              }}
+              className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100"
+            >
+              <X size={12} /> Clear
+            </button>
+          )}
+        </div>
+        {filtering && (
+          <p className="text-xs text-slate-500">
+            Showing {transactions.data?.transactions.length ?? 0} matches across all months.
+          </p>
+        )}
+      </Card>
 
       <Card className="flex items-center justify-between !py-3">
         {suggestion && creditor && debtor ? (
@@ -330,7 +450,24 @@ export default function Transactions() {
                       disabled={isSettlement}
                       className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 disabled:cursor-default disabled:hover:bg-white"
                     >
-                      {payer && <Avatar name={payer.name} color={payer.color} size={30} />}
+                      <span className="relative shrink-0">
+                        {isSettlement ? (
+                          payer && <Avatar name={payer.name} color={payer.color} size={30} />
+                        ) : (
+                          <>
+                            <MerchantLogo
+                              name={merchantById.get(tx.merchant_id ?? '')?.name ?? tx.description}
+                              domain={merchantById.get(tx.merchant_id ?? '')?.domain}
+                              size={30}
+                            />
+                            {payer && (
+                              <span className="absolute -bottom-1 -right-1 rounded-full ring-2 ring-white">
+                                <Avatar name={payer.name} color={payer.color} size={14} />
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </span>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">
                           {isSettlement ? '💸 ' : ''}
@@ -352,7 +489,15 @@ export default function Transactions() {
                         </Chip>
                       )}
                       {tx.trip_expense_id && <Chip className="bg-sky-100 text-sky-700">trip</Chip>}
-                      <span className="text-sm font-semibold tabular-nums">{fmtMoney(tx.amount_cents)}</span>
+                      {tx.amount_cents < 0 && <Chip className="bg-emerald-100 text-emerald-700">refund</Chip>}
+                      <span
+                        className={cls(
+                          'text-sm font-semibold tabular-nums',
+                          tx.amount_cents < 0 && 'text-emerald-600',
+                        )}
+                      >
+                        {tx.amount_cents < 0 ? `+${fmtMoney(-tx.amount_cents)}` : fmtMoney(tx.amount_cents)}
+                      </span>
                     </button>
                   )
                 })}
@@ -366,6 +511,8 @@ export default function Transactions() {
         <TxModal
           existing={editing}
           categories={categories}
+          merchants={merchants}
+          onMerchantsChanged={merchantsQuery.reload}
           onClose={() => {
             setAdding(false)
             setEditing(null)
@@ -391,6 +538,22 @@ export default function Transactions() {
         <RecurringModal
           categories={categories}
           onClose={() => setManagingRecurring(false)}
+          onChanged={reloadAll}
+        />
+      )}
+      {managingStores && (
+        <StoresModal
+          onClose={() => setManagingStores(false)}
+          onChanged={() => {
+            merchantsQuery.reload()
+            reloadAll()
+          }}
+        />
+      )}
+      {reviewingDuplicates && (
+        <DuplicatesModal
+          pairs={duplicatePairs}
+          onClose={() => setReviewingDuplicates(false)}
           onChanged={reloadAll}
         />
       )}

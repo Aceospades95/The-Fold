@@ -10,21 +10,23 @@ const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
 
 const splitSchema = z.object({
   user_id: z.string(),
-  share_cents: z.number().int().min(0),
+  share_cents: z.number().int(),
 })
 
 const lineSchema = z.object({
   category_id: z.string().nullish(),
-  amount_cents: z.number().int().positive(),
+  amount_cents: z.number().int().refine((v) => v !== 0, 'Line amounts cannot be zero'),
   note: z.string().max(200).nullish(),
 })
 
 const txBody = z.object({
   date: z.string().regex(DATE),
   description: z.string().trim().min(1).max(200),
-  amount_cents: z.number().int().positive(),
+  /** Positive = expense; negative = refund/credit. */
+  amount_cents: z.number().int().refine((v) => v !== 0, 'Amount cannot be zero'),
   category_id: z.string().nullish(),
   payer_user_id: z.string(),
+  account_id: z.string().nullish(),
   splits: z.array(splitSchema).min(1),
   /** Optional per-category breakdown; must add up to amount_cents. */
   lines: z.array(lineSchema).min(1).max(30).optional(),
@@ -54,6 +56,16 @@ function validateTxParticipants(
   if (uniqueUsers.size !== body.splits.length) badRequest('Each person can appear in the split only once.')
   const total = body.splits.reduce((sum, s) => sum + s.share_cents, 0)
   if (total !== body.amount_cents) badRequest('Split shares must add up to the total amount.')
+  const sign = Math.sign(body.amount_cents)
+  if (body.splits.some((s) => s.share_cents !== 0 && Math.sign(s.share_cents) !== sign)) {
+    badRequest('Split shares must match the direction of the amount.')
+  }
+  if (body.account_id) {
+    const account = app.db
+      .prepare('SELECT id FROM accounts WHERE id = ? AND household_id = ?')
+      .get(body.account_id, householdId)
+    if (!account) badRequest('Unknown account.')
+  }
 
   const categoryIds = [
     ...(body.category_id ? [body.category_id] : []),
@@ -87,6 +99,10 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
       .object({
         month: z.string().regex(MONTH).optional(),
         uncategorized: z.coerce.boolean().optional(),
+        q: z.string().trim().max(100).optional(),
+        category: z.string().optional(),
+        account: z.string().optional(),
+        payer: z.string().optional(),
       })
       .parse(req.query)
     if (query.uncategorized) {
@@ -94,8 +110,22 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
         transactions: getTransactions(app.db, req.user.household_id, { uncategorizedOnly: true, limit: 300 }),
       }
     }
+    const filters = {
+      q: query.q || undefined,
+      categoryId: query.category || undefined,
+      accountId: query.account || undefined,
+      payerId: query.payer || undefined,
+    }
+    const filtering = Object.values(filters).some(Boolean)
     const range = query.month ? monthRange(query.month) : {}
-    return { transactions: getTransactions(app.db, req.user.household_id, range) }
+    return {
+      transactions: getTransactions(app.db, req.user.household_id, {
+        ...range,
+        ...filters,
+        // A text/entity search should look across everything, not one month.
+        ...(filtering && !query.month ? { limit: 300 } : {}),
+      }),
+    }
   })
 
   app.post('/transactions', async (req) => {
@@ -116,10 +146,10 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
     validateTxParticipants(app, req.user.household_id, body)
     app.db
       .prepare(
-        `UPDATE transactions SET date = ?, description = ?, amount_cents = ?, payer_user_id = ?, notes = ?
+        `UPDATE transactions SET date = ?, description = ?, amount_cents = ?, payer_user_id = ?, account_id = ?, notes = ?
          WHERE id = ?`,
       )
-      .run(body.date, body.description, body.amount_cents, body.payer_user_id, body.notes ?? null, txId)
+      .run(body.date, body.description, body.amount_cents, body.payer_user_id, body.account_id ?? null, body.notes ?? null, txId)
     app.db.prepare('DELETE FROM transaction_splits WHERE transaction_id = ?').run(txId)
     const insertSplit = app.db.prepare(
       'INSERT INTO transaction_splits (id, transaction_id, user_id, share_cents) VALUES (?, ?, ?, ?)',

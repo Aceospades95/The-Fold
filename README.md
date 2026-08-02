@@ -41,7 +41,10 @@ The Fold exists because the pieces were scattered: Splitwise for splits, Mint fo
 - **Trips flow into the budget** — post any trip expense into a monthly budget category with a split, one click, no double entry.
 - **Lists** — to-dos, chores, groceries, wishlists (with prices and links), assignable to either of you, with due dates.
 - **Recurring transactions** — rent, internet, subscriptions post themselves on schedule (split and all), with automatic catch-up after server downtime.
-- **CSV statement import** — map your bank/card export's columns once, auto-rules pre-fill categories and splits ("Costco → Groceries, 50/50"), and duplicate rows are skipped on re-import.
+- **Statement import that knows your accounts** — pick which account a statement came from and The Fold remembers that account's format, sign convention, and payer, so future imports are one click. **CSV and OFX/QFX** both work (OFX skips column mapping entirely and dedupes on the bank's own transaction IDs, so overlapping exports never double-import). Every import is an undoable batch, statement credits come in as refunds, an OFX ledger balance can update the account's net-worth snapshot, and anything unclassified lands in the classify queue.
+- **Refunds & credits** — returns show up as green `+$` transactions that give money back to the envelope and unwind the who-owes-whom math.
+- **Search & filters** — search all spending by text, or filter by category, account, and who paid; every account on the Net worth page links to its activity.
+- **Reports** — cash flow (income vs spent vs kept, with savings rate) over 6 or 12 months, where it went by group, biggest movers, and who-spent-it by each person's *share* of the splits.
 - **Net worth (the Mint part)** — accounts for checking, savings, investments, retirement, property, and debts — joint or per-person — with dated balance snapshots and a household net-worth trend chart.
 - **Calendar feed (live integration)** — an iCal URL that Google Calendar subscribes to: trips, stops, and dated to-dos appear on both your calendars automatically.
 - **Home Assistant webhooks** — The Fold POSTs events (chores due, trip countdowns, budget overruns) to an HA webhook trigger; your automations take it from there.

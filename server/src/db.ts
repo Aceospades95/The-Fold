@@ -309,6 +309,27 @@ UPDATE categories SET bucket = 'want' WHERE scope = 'personal';
 UPDATE categories SET bucket = 'need' WHERE bucket IS NULL;
 `
 
+/**
+ * Statement imports v2: every import is a batch tied to the account the
+ * statement came from, so it can be reviewed and undone as a unit, and
+ * transactions know which account they hit.
+ */
+const SCHEMA_V7 = `
+CREATE TABLE import_batches (
+  id TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id),
+  account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
+  filename TEXT,
+  created_at TEXT NOT NULL,
+  imported_count INTEGER NOT NULL DEFAULT 0,
+  total_cents INTEGER NOT NULL DEFAULT 0
+);
+
+ALTER TABLE transactions ADD COLUMN account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL;
+ALTER TABLE transactions ADD COLUMN import_batch_id TEXT REFERENCES import_batches(id) ON DELETE SET NULL;
+CREATE INDEX idx_tx_account ON transactions(household_id, account_id);
+`
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: SCHEMA_V1 },
   { version: 2, sql: SCHEMA_V2 },
@@ -316,6 +337,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 4, sql: SCHEMA_V4 },
   { version: 5, sql: SCHEMA_V5 },
   { version: 6, sql: SCHEMA_V6 },
+  { version: 7, sql: SCHEMA_V7 },
 ]
 
 export function openDb(path: string): DatabaseSync {

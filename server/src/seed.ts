@@ -438,17 +438,18 @@ const insertAccount = db.prepare(
 const insertSnapshot = db.prepare(
   'INSERT INTO account_snapshots (id, account_id, date, balance_cents) VALUES (?, ?, ?, ?)',
 )
-function account(name: string, type: string, owner: string | null, sortIndex: number, balances: number[]): void {
+function account(name: string, type: string, owner: string | null, sortIndex: number, balances: number[]): string {
   const accountId = id()
   insertAccount.run(accountId, hhId, name, type, owner, sortIndex, now())
   months.forEach((month, index) => insertSnapshot.run(id(), accountId, day(month, 15), balances[index]))
+  return accountId
 }
 account('Joint checking', 'checking', null, 0, [412000, 434500, 401200, 468900])
 account('Emergency fund', 'savings', null, 1, [1150000, 1200000, 1250000, 1300000])
 account('Jake — 401(k)', 'retirement', jake, 2, [4820000, 4975000, 4890000, 5120000])
 account('Sam — Roth IRA', 'retirement', sam, 3, [2210000, 2280000, 2265000, 2350000])
 account('Brokerage (joint)', 'investment', null, 4, [1560000, 1625000, 1580000, 1710000])
-account('Visa — shared card', 'credit', null, 5, [184300, 158900, 210500, 96200])
+const visaId = account('Visa — shared card', 'credit', null, 5, [184300, 158900, 210500, 96200])
 account('Car loan', 'loan', null, 6, [1420000, 1385000, 1350000, 1315000])
 
 // --- recurring -------------------------------------------------------------
@@ -467,6 +468,15 @@ insertRecurring.run(
   JSON.stringify([{ user_id: jake, share_cents: 4000 }, { user_id: sam, share_cents: 4000 }]),
   'monthly', 8, day(nextMonth, 8), null, now(),
 )
+
+// The three unclassified transactions arrived via a Visa statement import.
+const batchId = id()
+db.prepare(
+  'INSERT INTO import_batches (id, household_id, account_id, filename, created_at, imported_count, total_cents) VALUES (?, ?, ?, ?, ?, 3, 17526)',
+).run(batchId, hhId, visaId, 'visa-statement.csv', now())
+db.prepare(
+  `UPDATE transactions SET account_id = ?, import_batch_id = ? WHERE household_id = ? AND description IN ('AMZN MKTP US*2A45BX9', 'SQ *BLUE BOTTLE COFFEE', 'POS DEBIT 4412 TARGET')`,
+).run(visaId, batchId, hhId)
 
 console.log('Seeded demo household with four months of budget history:')
 console.log('  jake@example.com / thefold')

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { AccountRow, AccountType, NetWorthPoint, NetWorthResponse } from '@fold/shared'
 import { ACCOUNT_TYPE_LABELS, LIABILITY_TYPES } from '@fold/shared'
 import { Archive, Plus } from 'lucide-react'
@@ -146,7 +147,9 @@ function AccountTable({ accounts, onChanged }: { accounts: AccountRow[]; onChang
         return (
           <div key={account.id} className="group flex items-center gap-3 py-2.5">
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{account.name}</p>
+              <Link to={`/transactions?account=${account.id}`} className="block truncate text-sm font-medium hover:text-violet-700 hover:underline" title="View this account's activity">
+                {account.name}
+              </Link>
               <p className="flex items-center gap-1.5 text-xs text-slate-500">
                 {ACCOUNT_TYPE_LABELS[account.type]}
                 {owner ? (

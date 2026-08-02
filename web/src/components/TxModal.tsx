@@ -181,27 +181,30 @@ export default function TxModal({
 }) {
   const { me } = useMe()
   const members = me.household.members
+  // Work in absolute values; `refund` flips the sign on save.
+  const [refund, setRefund] = useState((existing?.amount_cents ?? 0) < 0)
   const [description, setDescription] = useState(existing?.description ?? '')
-  const [amount, setAmount] = useState<number | null>(existing?.amount_cents ?? null)
+  const [amount, setAmount] = useState<number | null>(existing ? Math.abs(existing.amount_cents) : null)
   const [date, setDate] = useState(existing?.date ?? todayStr())
   const [payerId, setPayerId] = useState(existing?.payer_user_id ?? me.user.id)
   const [lines, setLines] = useState<SplitLine[]>(() => {
     if (existing && existing.lines.length > 0) {
-      return existing.lines.map((line) => ({ category_id: line.category_id ?? '', amount_cents: line.amount_cents }))
+      return existing.lines.map((line) => ({ category_id: line.category_id ?? '', amount_cents: Math.abs(line.amount_cents) }))
     }
-    return [{ category_id: categories.find((c) => c.scope === 'shared')?.id ?? '', amount_cents: existing?.amount_cents ?? null }]
+    return [{ category_id: categories.find((c) => c.scope === 'shared')?.id ?? '', amount_cents: existing ? Math.abs(existing.amount_cents) : null }]
   })
   const [mode, setMode] = useState<SplitMode>(() => {
     if (!existing) return members.length > 1 ? 'equal' : 'none'
-    return inferMode(existing.splits, existing.payer_user_id, members, {
-      lines: existing.lines.map((line) => ({ category_id: line.category_id ?? '', amount_cents: line.amount_cents })),
+    const absSplits = existing.splits.map((s) => ({ ...s, share_cents: Math.abs(s.share_cents) }))
+    return inferMode(absSplits, existing.payer_user_id, members, {
+      lines: existing.lines.map((line) => ({ category_id: line.category_id ?? '', amount_cents: Math.abs(line.amount_cents) })),
       categories,
       rule: me.household.split_rule,
     })
   })
   const [custom, setCustom] = useState<Record<string, number | null>>(() => {
     const initial: Record<string, number | null> = {}
-    if (existing) for (const split of existing.splits) initial[split.user_id] = split.share_cents
+    if (existing) for (const split of existing.splits) initial[split.user_id] = Math.abs(split.share_cents)
     return initial
   })
   const [error, setError] = useState<string | null>(null)
@@ -227,15 +230,16 @@ export default function TxModal({
     if (!valid) return
     setBusy(true)
     setError(null)
+    const sign = refund ? -1 : 1
     const body = {
       date,
       description: description.trim(),
-      amount_cents: amount,
+      amount_cents: amount! * sign,
       category_id: multiLine ? null : lines[0]?.category_id || null,
       payer_user_id: payerId,
-      splits,
+      splits: splits!.map((s) => ({ ...s, share_cents: s.share_cents * sign })),
       lines: multiLine
-        ? lines.map((line) => ({ category_id: line.category_id || null, amount_cents: line.amount_cents! }))
+        ? lines.map((line) => ({ category_id: line.category_id || null, amount_cents: line.amount_cents! * sign }))
         : undefined,
     }
     try {
@@ -274,6 +278,15 @@ export default function TxModal({
         <Field label="Description">
           <TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Groceries, rent, date night…" />
         </Field>
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          <input
+            type="checkbox"
+            checked={refund}
+            onChange={(e) => setRefund(e.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-violet-600"
+          />
+          This is a refund / credit — money coming back
+        </label>
         <Field label={multiLine ? 'Categories' : 'Category'}>
           <LineEditor lines={lines} categories={categories} amountCents={amount} onChange={setLines} />
         </Field>

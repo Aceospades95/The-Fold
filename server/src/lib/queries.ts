@@ -27,15 +27,42 @@ export function getMembers(db: DatabaseSync, householdId: string): Member[] {
 export function getTransactions(
   db: DatabaseSync,
   householdId: string,
-  opts: { start?: string; end?: string; limit?: number; uncategorizedOnly?: boolean } = {},
+  opts: {
+    start?: string
+    end?: string
+    limit?: number
+    uncategorizedOnly?: boolean
+    q?: string
+    categoryId?: string
+    accountId?: string
+    payerId?: string
+  } = {},
 ): Tx[] {
-  let sql = `SELECT id, kind, date, description, amount_cents, category_id, payer_user_id, trip_expense_id, recurring_id, notes
+  let sql = `SELECT id, kind, date, description, amount_cents, category_id, payer_user_id, account_id, import_batch_id, trip_expense_id, recurring_id, notes
              FROM transactions WHERE household_id = ?`
   const params: (string | number)[] = [householdId]
   if (opts.uncategorizedOnly) {
     sql += ` AND kind = 'expense' AND EXISTS (
                SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = transactions.id AND tl.category_id IS NULL
              )`
+  }
+  if (opts.q) {
+    sql += ' AND description LIKE ?'
+    params.push(`%${opts.q}%`)
+  }
+  if (opts.categoryId) {
+    sql += ` AND EXISTS (
+               SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = transactions.id AND tl.category_id = ?
+             )`
+    params.push(opts.categoryId)
+  }
+  if (opts.accountId) {
+    sql += ' AND account_id = ?'
+    params.push(opts.accountId)
+  }
+  if (opts.payerId) {
+    sql += ' AND payer_user_id = ?'
+    params.push(opts.payerId)
   }
   if (opts.start) {
     sql += ' AND date >= ?'

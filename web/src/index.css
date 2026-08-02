@@ -1,0 +1,186 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --color-ink: #0f172a;
+  --color-paper: #f8fafc;
+  --color-accent: #7c3aed;
+}
+
+/*
+ * Theming works by re-pointing Tailwind's color variables. Utilities like
+ * `bg-white` or `text-slate-500` compile to var(--color-white) /
+ * var(--color-slate-500), so redefining those under [data-mode] and
+ * [data-accent] rethemes every component with no class changes.
+ *
+ * Order matters: dark base first, light accents second, dark+accent last
+ * (highest specificity wins in the combined case).
+ */
+
+/* ---------- dark mode ---------- */
+[data-mode='dark'] {
+  --color-paper: #0f141e;
+  --color-ink: #e8edf6;
+  --color-white: #1a2130; /* cards & inputs */
+
+  --color-slate-50: #202839;
+  --color-slate-100: #273143;
+  --color-slate-200: #313d54;
+  --color-slate-300: #435270;
+  --color-slate-400: #8291ab;
+  --color-slate-500: #9aa7bd;
+  --color-slate-600: #b4bfd2;
+  --color-slate-700: #cfd7e5;
+  --color-slate-800: #e2e8f2;
+  --color-slate-900: #f1f5fb;
+
+  /* accent (violet default) — tinted surfaces darken, text lightens */
+  --color-violet-50: #241d3d;
+  --color-violet-100: #2d2452;
+  --color-violet-200: #3a2f68;
+  --color-violet-300: #4c3f85;
+  --color-violet-400: #8577f5;
+  --color-violet-500: #8b5cf6;
+  --color-violet-600: #7c3aed;
+  --color-violet-700: #9670ff;
+
+  /* semantic tints */
+  --color-emerald-50: #0d2b22;
+  --color-emerald-100: #123a2d;
+  --color-emerald-200: #17503c;
+  --color-emerald-500: #10b981;
+  --color-emerald-600: #34d399;
+  --color-emerald-700: #6ee7b7;
+
+  --color-red-50: #391820;
+  --color-red-100: #4a1d27;
+  --color-red-200: #6b2434;
+  --color-red-400: #f87171;
+  --color-red-500: #ef4444;
+  --color-red-600: #f87171;
+  --color-red-700: #fda4af;
+
+  --color-amber-50: #2f2410;
+  --color-amber-100: #3d2f13;
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-amber-600: #fbbf24;
+  --color-amber-700: #fcd34d;
+  --color-amber-800: #fde68a;
+  --color-amber-900: #fef3c7;
+
+  --color-sky-100: #103147;
+  --color-sky-700: #7dd3fc;
+}
+
+/* ---------- accent palettes (light values) ---------- */
+[data-accent='emerald'] {
+  --color-accent: #059669;
+  --color-violet-50: #ecfdf5;
+  --color-violet-100: #d1fae5;
+  --color-violet-200: #a7f3d0;
+  --color-violet-300: #6ee7b7;
+  --color-violet-400: #34d399;
+  --color-violet-500: #10b981;
+  --color-violet-600: #059669;
+  --color-violet-700: #047857;
+}
+[data-accent='rose'] {
+  --color-accent: #e11d48;
+  --color-violet-50: #fff1f2;
+  --color-violet-100: #ffe4e6;
+  --color-violet-200: #fecdd3;
+  --color-violet-300: #fda4af;
+  --color-violet-400: #fb7185;
+  --color-violet-500: #f43f5e;
+  --color-violet-600: #e11d48;
+  --color-violet-700: #be123c;
+}
+[data-accent='sky'] {
+  --color-accent: #0284c7;
+  --color-violet-50: #f0f9ff;
+  --color-violet-100: #e0f2fe;
+  --color-violet-200: #bae6fd;
+  --color-violet-300: #7dd3fc;
+  --color-violet-400: #38bdf8;
+  --color-violet-500: #0ea5e9;
+  --color-violet-600: #0284c7;
+  --color-violet-700: #0369a1;
+}
+[data-accent='amber'] {
+  --color-accent: #d97706;
+  --color-violet-50: #fffbeb;
+  --color-violet-100: #fef3c7;
+  --color-violet-200: #fde68a;
+  --color-violet-300: #fcd34d;
+  --color-violet-400: #fbbf24;
+  --color-violet-500: #f59e0b;
+  --color-violet-600: #d97706;
+  --color-violet-700: #b45309;
+}
+
+/* ---------- accent palettes in dark mode ---------- */
+[data-mode='dark'][data-accent='emerald'] {
+  --color-accent: #10b981;
+  --color-violet-50: #0d2b22;
+  --color-violet-100: #123a2d;
+  --color-violet-200: #17503c;
+  --color-violet-300: #1e6d50;
+  --color-violet-400: #2fae83;
+  --color-violet-500: #10b981;
+  --color-violet-600: #059669;
+  --color-violet-700: #34d399;
+}
+[data-mode='dark'][data-accent='rose'] {
+  --color-accent: #f43f5e;
+  --color-violet-50: #331520;
+  --color-violet-100: #431b29;
+  --color-violet-200: #5c2438;
+  --color-violet-300: #7c2e49;
+  --color-violet-400: #fb7185;
+  --color-violet-500: #f43f5e;
+  --color-violet-600: #e11d48;
+  --color-violet-700: #fb7185;
+}
+[data-mode='dark'][data-accent='sky'] {
+  --color-accent: #0ea5e9;
+  --color-violet-50: #0c2536;
+  --color-violet-100: #103147;
+  --color-violet-200: #16425e;
+  --color-violet-300: #1d567a;
+  --color-violet-400: #38bdf8;
+  --color-violet-500: #0ea5e9;
+  --color-violet-600: #0284c7;
+  --color-violet-700: #38bdf8;
+}
+[data-mode='dark'][data-accent='amber'] {
+  --color-accent: #f59e0b;
+  --color-violet-50: #2f2410;
+  --color-violet-100: #3d2f13;
+  --color-violet-200: #54401a;
+  --color-violet-300: #715623;
+  --color-violet-400: #fbbf24;
+  --color-violet-500: #f59e0b;
+  --color-violet-600: #d97706;
+  --color-violet-700: #fbbf24;
+}
+
+html {
+  background-color: var(--color-paper);
+}
+
+body {
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+/* Text that sits on accent-colored fills must stay white in every theme. */
+.text-on-accent {
+  color: #fff;
+}
+
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}

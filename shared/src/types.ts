@@ -19,6 +19,7 @@ export interface UserPublic {
   name: string
   email: string
   color: string
+  is_admin: 0 | 1
 }
 
 export interface Member extends UserPublic {
@@ -271,12 +272,36 @@ export interface Tx {
   category_id: string | null
   payer_user_id: string
   account_id: string | null
+  merchant_id: string | null
   import_batch_id: string | null
   trip_expense_id: string | null
   recurring_id: string | null
   notes: string | null
   splits: Split[]
   lines: TxLine[]
+}
+
+export interface Merchant {
+  id: string
+  name: string
+  domain: string | null
+  uses: number
+  top_category_id: string | null
+  last_date: string | null
+}
+
+export interface DuplicateTxInfo {
+  id: string
+  date: string
+  description: string
+  amount_cents: number
+  payer_user_id: string
+  imported: boolean
+}
+
+export interface DuplicatePair {
+  a: DuplicateTxInfo
+  b: DuplicateTxInfo
 }
 
 export interface ImportBatch {

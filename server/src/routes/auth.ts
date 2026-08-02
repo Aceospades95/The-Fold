@@ -140,12 +140,24 @@ export function setCookie(reply: { setCookie: Function }, token: string, maxAgeS
   })
 }
 
+export function openSignupEnabled(app: FastifyInstance): boolean {
+  const row = app.db.prepare(`SELECT value FROM instance_settings WHERE key = 'open_signup'`).get() as
+    | { value: string }
+    | undefined
+  return row?.value === 'true'
+}
+
 export async function publicAuthRoutes(app: FastifyInstance): Promise<void> {
   app.get('/bootstrap', async (req) => {
     const token = req.cookies[SESSION_COOKIE]
     const user = token ? userForToken(app.db, token) : null
+    const userCount = (app.db.prepare('SELECT COUNT(*) AS c FROM users').get() as { c: number }).c
     return {
-      user: user ? { id: user.id, name: user.name, email: user.email, color: user.color } : null,
+      user: user
+        ? { id: user.id, name: user.name, email: user.email, color: user.color, is_admin: user.is_admin }
+        : null,
+      has_users: userCount > 0,
+      signup_open: userCount === 0 || openSignupEnabled(app),
     }
   })
 
@@ -154,6 +166,14 @@ export async function publicAuthRoutes(app: FastifyInstance): Promise<void> {
     const existing = app.db.prepare('SELECT id FROM users WHERE email = ?').get(body.email)
     if (existing) badRequest('That email already has an account — sign in instead.')
 
+    // The very first account owns the server; after that, signups need an
+    // invite code unless the admin has explicitly opened registration.
+    const userCount = (app.db.prepare('SELECT COUNT(*) AS c FROM users').get() as { c: number }).c
+    const isAdmin = userCount === 0 ? 1 : 0
+    if (userCount > 0 && !body.invite_code && !openSignupEnabled(app)) {
+      badRequest('This server is invite-only — ask your partner for an invite code.')
+    }
+
     const userId = id()
 
     if (body.invite_code) {
@@ -161,9 +181,9 @@ export async function publicAuthRoutes(app: FastifyInstance): Promise<void> {
       const { householdId } = redeemInviteCode(app.db, body.invite_code, null)
       app.db
         .prepare(
-          'INSERT INTO users (id, household_id, name, email, password_hash, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO users (id, household_id, name, email, password_hash, color, is_admin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         )
-        .run(userId, householdId, body.name, body.email, hashPassword(body.password), nextMemberColor(app.db, householdId), now())
+        .run(userId, householdId, body.name, body.email, hashPassword(body.password), nextMemberColor(app.db, householdId), isAdmin, now())
       app.db
         .prepare('UPDATE invites SET used_by_user_id = ?, used_at = ? WHERE code = ?')
         .run(userId, now(), normalizeInviteCode(body.invite_code))
@@ -178,31 +198,33 @@ export async function publicAuthRoutes(app: FastifyInstance): Promise<void> {
         .run(householdId, body.household_name ?? `${firstName}’s budget`, 'proportional', randomBytes(16).toString('hex'), now())
       app.db
         .prepare(
-          'INSERT INTO users (id, household_id, name, email, password_hash, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO users (id, household_id, name, email, password_hash, color, is_admin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         )
-        .run(userId, householdId, body.name, body.email, hashPassword(body.password), MEMBER_COLORS[0], now())
+        .run(userId, householdId, body.name, body.email, hashPassword(body.password), MEMBER_COLORS[0], isAdmin, now())
       seedHouseholdDefaults(app.db, householdId)
       seedPersonalDefaults(app.db, householdId, userId)
     }
 
     const session = createSession(app.db, userId)
     setCookie(reply, session.token, session.maxAgeSeconds)
-    const user = app.db.prepare('SELECT id, name, email, color FROM users WHERE id = ?').get(userId)
+    const user = app.db.prepare('SELECT id, name, email, color, is_admin FROM users WHERE id = ?').get(userId)
     return { user }
   })
 
   app.post('/auth/login', async (req, reply) => {
     const body = loginBody.parse(req.body)
     const row = app.db
-      .prepare('SELECT id, name, email, color, password_hash FROM users WHERE email = ?')
-      .get(body.email) as { id: string; name: string; email: string; color: string; password_hash: string } | undefined
+      .prepare('SELECT id, name, email, color, is_admin, password_hash FROM users WHERE email = ?')
+      .get(body.email) as
+      | { id: string; name: string; email: string; color: string; is_admin: 0 | 1; password_hash: string }
+      | undefined
     if (!row || !verifyPassword(body.password, row.password_hash)) {
       reply.code(401)
       return { error: 'Wrong email or password' }
     }
     const session = createSession(app.db, row.id)
     setCookie(reply, session.token, session.maxAgeSeconds)
-    return { user: { id: row.id, name: row.name, email: row.email, color: row.color } }
+    return { user: { id: row.id, name: row.name, email: row.email, color: row.color, is_admin: row.is_admin } }
   })
 }
 

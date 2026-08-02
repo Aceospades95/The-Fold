@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Category, ImportBatch, ImportProfile, ImportRule, NetWorthResponse, Split } from '@fold/shared'
+import type { Category, ImportBatch, ImportProfile, ImportRule, Merchant, NetWorthResponse, Split } from '@fold/shared'
 import { splitByWeights, splitEqual } from '@fold/shared'
-import { Landmark, Undo2, Upload, Zap } from 'lucide-react'
+import { AlertTriangle, Landmark, Undo2, Upload, Zap } from 'lucide-react'
 import { api, useApi } from '../api'
 import { useMe } from '../App'
 import { fmtDate, fmtMoney } from '../format'
 import { Button, Chip, ErrorNote, Field, Modal, Select, cls } from '../ui'
+import { MerchantLogo } from './merchants'
 import { PayerPicker } from './TxModal'
 import { guessColumn, parseCsv, parseCsvAmount, parseCsvDate } from './csv'
 import { looksLikeOfx, parseOfx } from './ofx'
@@ -22,6 +23,8 @@ interface ParsedRow {
   category_id: string | ''
   mode: RowMode
   ruleApplied: boolean
+  merchant: Merchant | null
+  duplicate_of: { description: string; date: string; imported: boolean } | null
 }
 
 function computeRowSplits(
@@ -80,6 +83,7 @@ export default function ImportWizard({
   const members = me.household.members
   const networth = useApi<NetWorthResponse>('/networth')
   const profiles = useApi<{ profiles: Record<string, ImportProfile> }>('/import-profiles')
+  const merchantsQuery = useApi<{ merchants: Merchant[] }>('/merchants')
   const batches = useApi<{ batches: ImportBatch[] }>('/import-batches')
 
   const [step, setStep] = useState<'source' | 'map' | 'review'>('source')
@@ -105,6 +109,7 @@ export default function ImportWizard({
   const [busy, setBusy] = useState(false)
 
   const accounts = networth.data?.accounts ?? []
+  const merchants = merchantsQuery.data?.merchants ?? []
 
   function applyProfile(key: string): void {
     const profile = profiles.data?.profiles[key]
@@ -169,17 +174,43 @@ export default function ImportWizard({
       .filter((row) => row.amount_cents > 0 || withCredits)
       .map((row) => {
         const rule = rules.find((r) => row.description.toLowerCase().includes(r.match_text.toLowerCase()))
+        const lower = row.description.toLowerCase()
+        const merchant = merchants.find((m) => lower.includes(m.name.toLowerCase())) ?? null
         return {
           include: true,
           date: row.date,
           description: row.description,
           amount_cents: row.amount_cents,
           external_id: row.external_id,
-          category_id: rule?.category_id ?? '',
+          category_id: rule?.category_id ?? (merchant?.top_category_id ?? ''),
           mode: (rule?.split_mode as RowMode | undefined) ?? defaultMode,
           ruleApplied: !!rule,
+          merchant,
+          duplicate_of: null,
         }
       })
+  }
+
+  /** Existing lookalikes get flagged and start unchecked. */
+  async function flagDuplicates(parsed: ParsedRow[]): Promise<void> {
+    if (parsed.length === 0) return
+    try {
+      const check = await api.post<{ matches: ({ description: string; date: string; imported: boolean } | null)[] }>(
+        '/transactions/check-duplicates',
+        { rows: parsed.map((r) => ({ date: r.date, amount_cents: r.amount_cents })) },
+      )
+      setRows((prev) =>
+        prev.map((row, index) => {
+          const match = check.matches[index]
+          // Only apply to the same row set (row identity by index is fine here —
+          // flagging always follows the setRows that produced `parsed`).
+          if (!match || prev.length !== parsed.length) return row
+          return { ...row, duplicate_of: match, include: false }
+        }),
+      )
+    } catch {
+      // Advisory only.
+    }
   }
 
   function buildRows(
@@ -187,7 +218,9 @@ export default function ImportWizard({
     withCredits = includeCredits,
   ): void {
     if (source || fileKind === 'ofx') {
-      setRows(decorate(source ?? ofxRows, withCredits))
+      const parsed = decorate(source ?? ofxRows, withCredits)
+      setRows(parsed)
+      void flagDuplicates(parsed)
       return
     }
     const dataRows = hasHeader ? grid.slice(1) : grid
@@ -202,6 +235,7 @@ export default function ImportWizard({
     }
     const parsed = decorate(raw, withCredits)
     setRows(parsed)
+    void flagDuplicates(parsed)
     setError(parsed.length === 0 ? 'No usable rows found with that mapping — check the columns and sign convention.' : null)
     if (parsed.length > 0) setStep('review')
   }
@@ -250,6 +284,7 @@ export default function ImportWizard({
           amount_cents: r.amount_cents,
           external_id: r.external_id,
           category_id: r.category_id || null,
+          merchant_id: r.merchant?.id ?? null,
           splits: computeRowSplits(r.amount_cents, r.mode, payerId, members),
         })),
       })
@@ -492,9 +527,20 @@ export default function ImportWizard({
                       />
                     </td>
                     <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-slate-500">{row.date}</td>
-                    <td className="max-w-[180px] truncate px-2 py-1.5" title={row.description}>
-                      {row.description}
-                      {row.ruleApplied && <Zap size={11} className="ml-1 inline text-amber-500" />}
+                    <td className="max-w-[200px] px-2 py-1.5" title={row.description}>
+                      <span className="flex items-center gap-1.5">
+                        {row.merchant && <MerchantLogo name={row.merchant.name} domain={row.merchant.domain} size={18} />}
+                        <span className="truncate">{row.description}</span>
+                        {row.ruleApplied && <Zap size={11} className="shrink-0 text-amber-500" />}
+                        {row.duplicate_of && (
+                          <span
+                            title={`Looks like "${row.duplicate_of.description}" (${row.duplicate_of.imported ? 'imported' : 'entered manually'}) on ${row.duplicate_of.date} — unchecked so it won't double-import`}
+                            className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+                          >
+                            <AlertTriangle size={9} /> dup?
+                          </span>
+                        )}
+                      </span>
                     </td>
                     <td
                       className={cls(

@@ -16,6 +16,7 @@ export interface TxInput {
   category_id?: string | null
   payer_user_id: string
   account_id?: string | null
+  merchant_id?: string | null
   import_batch_id?: string | null
   trip_expense_id?: string | null
   recurring_id?: string | null
@@ -50,8 +51,8 @@ export function insertTransactionRaw(db: DatabaseSync, householdId: string, inpu
   const txId = id()
   const lines = normalizeLines(input)
   db.prepare(
-    `INSERT INTO transactions (id, household_id, kind, date, description, amount_cents, category_id, payer_user_id, account_id, import_batch_id, trip_expense_id, recurring_id, import_hash, notes, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO transactions (id, household_id, kind, date, description, amount_cents, category_id, payer_user_id, account_id, merchant_id, import_batch_id, trip_expense_id, recurring_id, import_hash, notes, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     txId,
     householdId,
@@ -62,6 +63,7 @@ export function insertTransactionRaw(db: DatabaseSync, householdId: string, inpu
     primaryCategory(lines),
     input.payer_user_id,
     input.account_id ?? null,
+    input.merchant_id ?? null,
     input.import_batch_id ?? null,
     input.trip_expense_id ?? null,
     input.recurring_id ?? null,

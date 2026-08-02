@@ -11,7 +11,7 @@ import type {
   SplitRule,
 } from '@fold/shared'
 import { CADENCES, METHOD_LABELS, monthlyCents } from '@fold/shared'
-import { Check, Copy, Link2, Moon, Monitor, Pencil, Plus, RefreshCw, Sun, Trash2, UserPlus } from 'lucide-react'
+import { Check, Copy, Link2, Moon, Monitor, Pencil, Plus, RefreshCw, ShieldCheck, Sun, Trash2, UserPlus } from 'lucide-react'
 import { api, useApi } from '../api'
 import { useMe } from '../App'
 import { fmtMoney } from '../format'
@@ -208,6 +208,45 @@ function IncomeModal({
         </div>
       </div>
     </Modal>
+  )
+}
+
+function ServerCard() {
+  const { me } = useMe()
+  const { data, reload } = useApi<{ open_signup: boolean; users: number; households: number }>(
+    me.user.is_admin === 1 ? '/instance' : null,
+  )
+  if (me.user.is_admin !== 1 || !data) return null
+
+  async function toggle(next: boolean): Promise<void> {
+    await api.patch('/instance', { open_signup: next })
+    reload()
+  }
+
+  return (
+    <Card>
+      <CardTitle>Server</CardTitle>
+      <p className="mb-3 flex items-center gap-1.5 text-sm text-slate-500">
+        <ShieldCheck size={15} className="text-emerald-600" />
+        You're the server admin ({data.users} {data.users === 1 ? 'account' : 'accounts'},{' '}
+        {data.households} {data.households === 1 ? 'household' : 'households'}).
+      </p>
+      <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-3">
+        <input
+          type="checkbox"
+          checked={data.open_signup}
+          onChange={(e) => void toggle(e.target.checked)}
+          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-violet-600"
+        />
+        <span>
+          <span className="block text-sm font-medium">Allow open signup</span>
+          <span className="block text-xs text-slate-500">
+            Off (recommended): only invite codes can create new accounts. On: anyone who can reach this server can sign
+            up. Invite codes always work either way.
+          </span>
+        </span>
+      </label>
+    </Card>
   )
 }
 
@@ -713,6 +752,7 @@ export default function Settings() {
       </div>
 
       <AppearanceCard />
+      <ServerCard />
       <PartnerCard />
 
       <Card>

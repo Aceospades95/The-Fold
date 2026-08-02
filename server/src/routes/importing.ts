@@ -25,6 +25,7 @@ const importBody = z.object({
         /** Bank-provided transaction id (OFX FITID) — the strongest dedupe key. */
         external_id: z.string().max(120).nullish(),
         category_id: z.string().nullish(),
+        merchant_id: z.string().nullish(),
         splits: z.array(splitSchema).min(1),
         lines: z
           .array(z.object({ category_id: z.string().nullish(), amount_cents: z.number().int() }))
@@ -87,6 +88,11 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
         (c) => c.id,
       ),
     )
+    const merchantIds = new Set(
+      (app.db.prepare('SELECT id FROM merchants WHERE household_id = ?').all(householdId) as { id: string }[]).map(
+        (m) => m.id,
+      ),
+    )
 
     const batchId = id()
     app.db
@@ -109,6 +115,7 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
         if (!memberIds.includes(split.user_id)) badRequest('Split member is not in your household.')
       }
       if (row.category_id && !categoryIds.has(row.category_id)) badRequest('Unknown category.')
+      if (row.merchant_id && !merchantIds.has(row.merchant_id)) badRequest('Unknown store.')
       if (row.lines) {
         const lineTotal = row.lines.reduce((sum, line) => sum + line.amount_cents, 0)
         if (lineTotal !== row.amount_cents) badRequest(`Category amounts for "${row.description}" don't add up.`)
@@ -135,6 +142,7 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
         category_id: row.category_id ?? null,
         payer_user_id: body.payer_user_id,
         account_id: body.account_id ?? null,
+        merchant_id: row.merchant_id ?? null,
         import_batch_id: batchId,
         import_hash: hash,
         splits: row.splits,

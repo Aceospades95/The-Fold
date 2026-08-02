@@ -5,8 +5,8 @@ import type { Cadence } from '@fold/shared'
 
 export function getMembers(db: DatabaseSync, householdId: string): Member[] {
   const users = db
-    .prepare('SELECT id, name, email, color FROM users WHERE household_id = ? ORDER BY created_at')
-    .all(householdId) as { id: string; name: string; email: string; color: string }[]
+    .prepare('SELECT id, name, email, color, is_admin FROM users WHERE household_id = ? ORDER BY created_at')
+    .all(householdId) as { id: string; name: string; email: string; color: string; is_admin: 0 | 1 }[]
   const incomes = db
     .prepare(
       `SELECT i.user_id, i.amount_cents, i.gross_cents, i.cadence
@@ -38,7 +38,7 @@ export function getTransactions(
     payerId?: string
   } = {},
 ): Tx[] {
-  let sql = `SELECT id, kind, date, description, amount_cents, category_id, payer_user_id, account_id, import_batch_id, trip_expense_id, recurring_id, notes
+  let sql = `SELECT id, kind, date, description, amount_cents, category_id, payer_user_id, account_id, merchant_id, import_batch_id, trip_expense_id, recurring_id, notes
              FROM transactions WHERE household_id = ?`
   const params: (string | number)[] = [householdId]
   if (opts.uncategorizedOnly) {
@@ -47,8 +47,10 @@ export function getTransactions(
              )`
   }
   if (opts.q) {
-    sql += ' AND description LIKE ?'
-    params.push(`%${opts.q}%`)
+    sql += ` AND (description LIKE ? OR EXISTS (
+               SELECT 1 FROM merchants m WHERE m.id = transactions.merchant_id AND m.name LIKE ?
+             ))`
+    params.push(`%${opts.q}%`, `%${opts.q}%`)
   }
   if (opts.categoryId) {
     sql += ` AND EXISTS (

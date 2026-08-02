@@ -51,7 +51,13 @@ export async function householdRoutes(app: FastifyInstance): Promise<void> {
       )
       .get(req.user.household_id) as unknown as HouseholdRow
     return {
-      user: { id: req.user.id, name: req.user.name, email: req.user.email, color: req.user.color },
+      user: {
+        id: req.user.id,
+        name: req.user.name,
+        email: req.user.email,
+        color: req.user.color,
+        is_admin: req.user.is_admin,
+      },
       household: {
         id: hh.id,
         name: hh.name,

@@ -120,6 +120,7 @@ function Shell({ children }: { children: ReactNode }) {
 export default function App() {
   const [phase, setPhase] = useState<'loading' | 'login' | 'app'>('loading')
   const [me, setMe] = useState<MeResponse | null>(null)
+  const [boot, setBoot] = useState<{ has_users: boolean; signup_open: boolean }>({ has_users: true, signup_open: false })
   const location = useLocation()
 
   async function loadMe(): Promise<void> {
@@ -130,9 +131,10 @@ export default function App() {
 
   useEffect(() => {
     api
-      .get<{ user: UserPublic | null }>('/bootstrap')
-      .then((boot) => {
-        if (!boot.user) setPhase('login')
+      .get<{ user: UserPublic | null; has_users: boolean; signup_open: boolean }>('/bootstrap')
+      .then((result) => {
+        setBoot({ has_users: result.has_users, signup_open: result.signup_open })
+        if (!result.user) setPhase('login')
         else return loadMe()
       })
       .catch(() => setPhase('login'))
@@ -141,7 +143,7 @@ export default function App() {
   if (phase === 'loading') {
     return <div className="flex min-h-screen items-center justify-center text-3xl">🪺</div>
   }
-  if (phase === 'login' || !me) return <Login onDone={() => void loadMe()} />
+  if (phase === 'login' || !me) return <Login onDone={() => void loadMe()} hasUsers={boot.has_users} signupOpen={boot.signup_open} />
 
   const context: MeContextValue = {
     me,

@@ -2,9 +2,18 @@ import { useState } from 'react'
 import { api } from '../api'
 import { Button, ErrorNote, Field, TextInput, cls } from '../ui'
 
-export default function Login({ onDone }: { onDone: () => void }) {
+export default function Login({
+  onDone,
+  hasUsers,
+  signupOpen,
+}: {
+  onDone: () => void
+  hasUsers: boolean
+  signupOpen: boolean
+}) {
   const inviteFromUrl = new URLSearchParams(window.location.search).get('invite') ?? ''
-  const [tab, setTab] = useState<'signin' | 'signup'>(inviteFromUrl ? 'signup' : 'signin')
+  const [tab, setTab] = useState<'signin' | 'signup'>(inviteFromUrl || !hasUsers ? 'signup' : 'signin')
+  const inviteRequired = hasUsers && !signupOpen
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -78,15 +87,26 @@ export default function Login({ onDone }: { onDone: () => void }) {
         <Field label="Password" hint={tab === 'signup' ? 'At least 6 characters.' : undefined}>
           <TextInput type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={tab === 'signup' ? 6 : undefined} required />
         </Field>
-        {tab === 'signup' && (
+        {tab === 'signup' && !hasUsers && (
+          <p className="rounded-lg bg-violet-50 px-3 py-2 text-xs text-violet-800">
+            You're first — this account becomes the <strong>server admin</strong>. After this, new accounts need an
+            invite code unless you open signup in Settings.
+          </p>
+        )}
+        {tab === 'signup' && hasUsers && (
           <Field
-            label="Invite code (optional)"
-            hint="Got a code from your partner? Your accounts link into one household — otherwise you start your own budget and can link later."
+            label={inviteRequired ? 'Invite code' : 'Invite code (optional)'}
+            hint={
+              inviteRequired
+                ? 'This server is invite-only — ask your partner (or the admin) for a code.'
+                : 'Got a code from your partner? Your accounts link into one household — otherwise you start your own budget and can link later.'
+            }
           >
             <TextInput
               value={inviteCode}
               onChange={(e) => setInviteCode(e.target.value)}
               placeholder="XXXX-XXXX"
+              required={inviteRequired}
               className="uppercase tracking-widest"
             />
           </Field>

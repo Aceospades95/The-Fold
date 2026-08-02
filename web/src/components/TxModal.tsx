@@ -1,11 +1,118 @@
-import { useState } from 'react'
-import type { Category, Tx } from '@fold/shared'
+import { useRef, useState } from 'react'
+import type { Category, Merchant, Tx } from '@fold/shared'
 import { Plus, Split as SplitIcon, X } from 'lucide-react'
 import { api } from '../api'
 import { useMe } from '../App'
-import { fmtMoney, todayStr } from '../format'
+import { fmtDate, fmtMoney, todayStr } from '../format'
 import { Avatar, Button, ErrorNote, Field, Modal, MoneyInput, Select, TextInput, cls } from '../ui'
+import { MerchantLogo } from './merchants'
 import { SplitEditor, computeSplits, inferMode, type SplitLine, type SplitMode } from './SplitEditor'
+
+/**
+ * Description input doubling as a store search: pick a known store (logo +
+ * its usual category) or create one from what you typed.
+ */
+function StorePicker({
+  description,
+  merchantId,
+  merchants,
+  categories,
+  onDescription,
+  onPick,
+  onCreate,
+}: {
+  description: string
+  merchantId: string | null
+  merchants: Merchant[]
+  categories: Category[]
+  onDescription: (text: string) => void
+  onPick: (merchant: Merchant | null) => void
+  onCreate: (name: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const blurTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const selected = merchants.find((m) => m.id === merchantId) ?? null
+  const query = description.trim().toLowerCase()
+  const suggestions = query
+    ? merchants.filter((m) => m.name.toLowerCase().includes(query)).slice(0, 6)
+    : merchants.slice(0, 6)
+  const exact = merchants.some((m) => m.name.toLowerCase() === query)
+
+  if (selected) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-2 py-1.5">
+        <MerchantLogo name={selected.name} domain={selected.domain} size={26} />
+        <span className="flex-1 truncate text-sm font-medium">{selected.name}</span>
+        <button
+          type="button"
+          title="Unlink store"
+          onClick={() => onPick(null)}
+          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+        >
+          <X size={14} />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative">
+      <TextInput
+        value={description}
+        onChange={(e) => {
+          onDescription(e.target.value)
+          setOpen(true)
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => {
+          blurTimer.current = setTimeout(() => setOpen(false), 150)
+        }}
+        placeholder="Costco, rent, date night…"
+      />
+      {open && (suggestions.length > 0 || query.length > 1) && (
+        <div
+          className="absolute z-20 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+          onMouseDown={() => clearTimeout(blurTimer.current)}
+        >
+          {suggestions.map((merchant) => {
+            const topCategory = categories.find((c) => c.id === merchant.top_category_id)
+            return (
+              <button
+                key={merchant.id}
+                type="button"
+                onClick={() => {
+                  onPick(merchant)
+                  setOpen(false)
+                }}
+                className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left hover:bg-slate-50"
+              >
+                <MerchantLogo name={merchant.name} domain={merchant.domain} size={24} />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{merchant.name}</span>
+                {topCategory && (
+                  <span className="shrink-0 text-xs text-slate-400">
+                    usually {topCategory.emoji} {topCategory.name}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+          {query.length > 1 && !exact && (
+            <button
+              type="button"
+              onClick={() => {
+                onCreate(description.trim())
+                setOpen(false)
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm font-medium text-violet-700 hover:bg-violet-50"
+            >
+              <Plus size={14} /> Add “{description.trim()}” as a store
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export function CategorySelect({
   categories,
@@ -171,16 +278,21 @@ export function LineEditor({
 export default function TxModal({
   existing,
   categories,
+  merchants = [],
+  onMerchantsChanged,
   onClose,
   onSaved,
 }: {
   existing: Tx | null
   categories: Category[]
+  merchants?: Merchant[]
+  onMerchantsChanged?: () => void
   onClose: () => void
   onSaved: () => void
 }) {
   const { me } = useMe()
   const members = me.household.members
+  const [merchantId, setMerchantId] = useState<string | null>(existing?.merchant_id ?? null)
   // Work in absolute values; `refund` flips the sign on save.
   const [refund, setRefund] = useState((existing?.amount_cents ?? 0) < 0)
   const [description, setDescription] = useState(existing?.description ?? '')
@@ -231,12 +343,37 @@ export default function TxModal({
     setBusy(true)
     setError(null)
     const sign = refund ? -1 : 1
+
+    // Catch double entry before it happens: same amount within a few days.
+    if (!existing && !refund) {
+      try {
+        const check = await api.post<{ matches: ({ description: string; date: string; imported: boolean } | null)[] }>(
+          '/transactions/check-duplicates',
+          { rows: [{ date, amount_cents: amount! }] },
+        )
+        const match = check.matches[0]
+        if (match) {
+          const source = match.imported ? 'imported' : 'entered'
+          const proceed = confirm(
+            `Heads up — "${match.description}" (${source} on ${fmtDate(match.date)}) has the same amount. Add this anyway?`,
+          )
+          if (!proceed) {
+            setBusy(false)
+            return
+          }
+        }
+      } catch {
+        // The duplicate check is advisory; never block saving on it.
+      }
+    }
+
     const body = {
       date,
       description: description.trim(),
       amount_cents: amount! * sign,
       category_id: multiLine ? null : lines[0]?.category_id || null,
       payer_user_id: payerId,
+      merchant_id: merchantId,
       splits: splits!.map((s) => ({ ...s, share_cents: s.share_cents * sign })),
       lines: multiLine
         ? lines.map((line) => ({ category_id: line.category_id || null, amount_cents: line.amount_cents! * sign }))
@@ -275,8 +412,34 @@ export default function TxModal({
             <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </Field>
         </div>
-        <Field label="Description">
-          <TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Groceries, rent, date night…" />
+        <Field label="Store / description">
+          <StorePicker
+            description={description}
+            merchantId={merchantId}
+            merchants={merchants}
+            categories={categories}
+            onDescription={setDescription}
+            onPick={(merchant) => {
+              setMerchantId(merchant?.id ?? null)
+              if (merchant) {
+                setDescription(merchant.name)
+                // Adopt the store's usual category when nothing meaningful is set yet.
+                if (!multiLine && merchant.top_category_id) {
+                  setLines([{ category_id: merchant.top_category_id, amount_cents: amount }])
+                }
+              }
+            }}
+            onCreate={(name) => {
+              void api
+                .post<{ id: string }>('/merchants', { name })
+                .then((result) => {
+                  setMerchantId(result.id)
+                  setDescription(name)
+                  onMerchantsChanged?.()
+                })
+                .catch((err: Error) => setError(err.message))
+            }}
+          />
         </Field>
         <label className="flex items-center gap-2 text-sm text-slate-600">
           <input

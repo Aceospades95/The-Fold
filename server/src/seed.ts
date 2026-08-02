@@ -45,6 +45,8 @@ const insertUser = db.prepare(
 )
 insertUser.run(jake, hhId, 'Jake', 'jake@example.com', hashPassword('thefold'), '#8b5cf6', now())
 insertUser.run(sam, hhId, 'Sam', 'sam@example.com', hashPassword('thefold'), '#10b981', now())
+// First account on the instance is the server admin.
+db.prepare('UPDATE users SET is_admin = 1 WHERE id = ?').run(jake)
 
 const insertIncome = db.prepare(
   'INSERT INTO income_sources (id, user_id, name, amount_cents, gross_cents, deductions, cadence, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -468,6 +470,34 @@ insertRecurring.run(
   JSON.stringify([{ user_id: jake, share_cents: 4000 }, { user_id: sam, share_cents: 4000 }]),
   'monthly', 8, day(nextMonth, 8), null, now(),
 )
+
+// --- stores (merchants) with logo domains ----------------------------------
+const insertMerchant = db.prepare(
+  'INSERT INTO merchants (id, household_id, name, domain, created_at) VALUES (?, ?, ?, ?, ?)',
+)
+const merchants: Record<string, string> = {}
+;[
+  ['Costco', 'costco.com'],
+  ['Trader Joe’s', 'traderjoes.com'],
+  ['Shell', 'shell.com'],
+  ['Target', 'target.com'],
+  ['Amazon', 'amazon.com'],
+  ['Blue Bottle Coffee', 'bluebottlecoffee.com'],
+].forEach(([name, domain]) => {
+  const merchantId = id()
+  merchants[name] = merchantId
+  insertMerchant.run(merchantId, hhId, name, domain, now())
+})
+const linkMerchant = db.prepare(
+  `UPDATE transactions SET merchant_id = ? WHERE household_id = ? AND description LIKE ?`,
+)
+linkMerchant.run(merchants['Costco'], hhId, '%Costco%')
+linkMerchant.run(merchants['Trader Joe’s'], hhId, '%Trader Joe%')
+linkMerchant.run(merchants['Shell'], hhId, '%SHELL%')
+linkMerchant.run(merchants['Target'], hhId, '%Target%')
+linkMerchant.run(merchants['Target'], hhId, '%TARGET%')
+linkMerchant.run(merchants['Amazon'], hhId, '%AMZN%')
+linkMerchant.run(merchants['Blue Bottle Coffee'], hhId, '%BLUE BOTTLE%')
 
 // The three unclassified transactions arrived via a Visa statement import.
 const batchId = id()

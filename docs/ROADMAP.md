@@ -37,6 +37,9 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Multi-category transactions (line items) and a classify queue for anything imported bare.
 - [x] Transaction search + filters (text, category, account, payer) and per-account activity views.
 - [x] Reports: cash flow, savings rate, spending by group, movers, who-spent-it by split share.
+- [x] Stores (merchants) with domain-based logos, searchable picker with usual-category suggestions, import auto-matching.
+- [x] Duplicate detection: manual-entry warning, import pre-checks, and a lookalike-pair review with remembered dismissals.
+- [x] Instance admin: first account owns the server; invite-only signup with an admin toggle for open registration.
 - [ ] SimpleFIN Bridge sync: accounts, balances, transactions on a schedule.
 - [ ] Auto-rules that split across categories, not just one.
 - [ ] Reconciliation: tick imported transactions against the statement balance.

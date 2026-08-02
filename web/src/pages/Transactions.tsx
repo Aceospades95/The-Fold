@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import type { BalancesResponse, Category, ImportRule, NetWorthResponse, Tx } from '@fold/shared'
-import { ArrowLeftRight, ChevronLeft, ChevronRight, Plus, Repeat, Search, Split as SplitIcon, Tag, Upload, X } from 'lucide-react'
+import type { BalancesResponse, Category, DuplicatePair, ImportRule, Merchant, NetWorthResponse, Tx } from '@fold/shared'
+import { ArrowLeftRight, ChevronLeft, ChevronRight, Copy, Plus, Repeat, Search, Split as SplitIcon, Store, Tag, Upload, X } from 'lucide-react'
 import { api, useApi } from '../api'
 import { useMe } from '../App'
 import { currentMonth, fmtDate, fmtDateFull, fmtMoney, fmtMonth, shiftMonth, todayStr } from '../format'
@@ -9,6 +9,7 @@ import { Avatar, Button, Card, Chip, EmptyState, ErrorNote, Field, Modal, MoneyI
 import ImportWizard from '../components/ImportWizard'
 import RecurringModal from '../components/RecurringModal'
 import TxModal, { CategorySelect } from '../components/TxModal'
+import { DuplicatesModal, MerchantLogo, StoresModal } from '../components/merchants'
 
 function SettleModal({ balances, onClose, onSaved }: { balances: BalancesResponse; onClose: () => void; onSaved: () => void }) {
   const { me } = useMe()
@@ -205,17 +206,24 @@ export default function Transactions() {
   const balances = useApi<BalancesResponse>('/balances')
   const categoriesQuery = useApi<{ categories: Category[] }>('/categories')
   const networth = useApi<NetWorthResponse>('/networth')
+  const merchantsQuery = useApi<{ merchants: Merchant[] }>('/merchants')
+  const duplicatesQuery = useApi<{ pairs: DuplicatePair[] }>('/transactions/duplicates')
   const rulesQuery = useApi<{ rules: ImportRule[] }>('/import-rules')
   const uncategorizedQuery = useApi<{ transactions: Tx[] }>(needsCategory ? '/transactions?uncategorized=1' : null)
   const [editing, setEditing] = useState<Tx | null>(null)
   const [adding, setAdding] = useState(false)
   const [settling, setSettling] = useState(false)
   const [managingRecurring, setManagingRecurring] = useState(false)
+  const [managingStores, setManagingStores] = useState(false)
+  const [reviewingDuplicates, setReviewingDuplicates] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importNote, setImportNote] = useState<string | null>(null)
 
   const members = me.household.members
   const categories = categoriesQuery.data?.categories ?? []
+  const merchants = merchantsQuery.data?.merchants ?? []
+  const merchantById = useMemo(() => new Map(merchants.map((m) => [m.id, m])), [merchants])
+  const duplicatePairs = duplicatesQuery.data?.pairs ?? []
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
 
   const grouped = useMemo(() => {
@@ -231,6 +239,7 @@ export default function Transactions() {
   function reloadAll(): void {
     transactions.reload()
     balances.reload()
+    duplicatesQuery.reload()
     if (needsCategory) uncategorizedQuery.reload()
   }
 
@@ -269,6 +278,9 @@ export default function Transactions() {
           <Button variant="secondary" onClick={() => setManagingRecurring(true)}>
             <Repeat size={15} /> Recurring
           </Button>
+          <Button variant="secondary" onClick={() => setManagingStores(true)}>
+            <Store size={15} /> Stores
+          </Button>
           <Button variant="secondary" onClick={() => setSettling(true)}>
             <ArrowLeftRight size={15} /> Settle up
           </Button>
@@ -293,6 +305,21 @@ export default function Transactions() {
             </button>
           </div>
         </Card>
+      )}
+
+      {duplicatePairs.length > 0 && (
+        <button onClick={() => setReviewingDuplicates(true)} className="block w-full text-left">
+          <Card className="flex items-center justify-between bg-amber-50/70 !py-3 transition-colors hover:bg-amber-100/70">
+            <p className="flex items-center gap-2 text-sm text-amber-900">
+              <Copy size={15} />
+              <span>
+                <strong>{duplicatePairs.length}</strong> possible duplicate {duplicatePairs.length === 1 ? 'pair' : 'pairs'} —
+                same amount within a few days.
+              </span>
+            </p>
+            <span className="shrink-0 text-xs font-medium text-amber-800">Review →</span>
+          </Card>
+        </button>
       )}
 
       <Card className="space-y-2.5 !py-3">
@@ -423,7 +450,24 @@ export default function Transactions() {
                       disabled={isSettlement}
                       className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 disabled:cursor-default disabled:hover:bg-white"
                     >
-                      {payer && <Avatar name={payer.name} color={payer.color} size={30} />}
+                      <span className="relative shrink-0">
+                        {isSettlement ? (
+                          payer && <Avatar name={payer.name} color={payer.color} size={30} />
+                        ) : (
+                          <>
+                            <MerchantLogo
+                              name={merchantById.get(tx.merchant_id ?? '')?.name ?? tx.description}
+                              domain={merchantById.get(tx.merchant_id ?? '')?.domain}
+                              size={30}
+                            />
+                            {payer && (
+                              <span className="absolute -bottom-1 -right-1 rounded-full ring-2 ring-white">
+                                <Avatar name={payer.name} color={payer.color} size={14} />
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </span>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">
                           {isSettlement ? '💸 ' : ''}
@@ -467,6 +511,8 @@ export default function Transactions() {
         <TxModal
           existing={editing}
           categories={categories}
+          merchants={merchants}
+          onMerchantsChanged={merchantsQuery.reload}
           onClose={() => {
             setAdding(false)
             setEditing(null)
@@ -492,6 +538,22 @@ export default function Transactions() {
         <RecurringModal
           categories={categories}
           onClose={() => setManagingRecurring(false)}
+          onChanged={reloadAll}
+        />
+      )}
+      {managingStores && (
+        <StoresModal
+          onClose={() => setManagingStores(false)}
+          onChanged={() => {
+            merchantsQuery.reload()
+            reloadAll()
+          }}
+        />
+      )}
+      {reviewingDuplicates && (
+        <DuplicatesModal
+          pairs={duplicatePairs}
+          onClose={() => setReviewingDuplicates(false)}
           onChanged={reloadAll}
         />
       )}

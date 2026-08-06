@@ -505,8 +505,13 @@ db.prepare(
   'INSERT INTO import_batches (id, household_id, account_id, filename, created_at, imported_count, total_cents) VALUES (?, ?, ?, ?, ?, 3, 17526)',
 ).run(batchId, hhId, visaId, 'visa-statement.csv', now())
 db.prepare(
-  `UPDATE transactions SET account_id = ?, import_batch_id = ? WHERE household_id = ? AND description IN ('AMZN MKTP US*2A45BX9', 'SQ *BLUE BOTTLE COFFEE', 'POS DEBIT 4412 TARGET')`,
+  `UPDATE transactions SET account_id = ?, import_batch_id = ?, cleared = 1 WHERE household_id = ? AND description IN ('AMZN MKTP US*2A45BX9', 'SQ *BLUE BOTTLE COFFEE', 'POS DEBIT 4412 TARGET')`,
 ).run(visaId, batchId, hhId)
+
+// A couple of card purchases entered by hand that the statement hasn't confirmed yet.
+db.prepare(
+  `UPDATE transactions SET account_id = ? WHERE household_id = ? AND description IN ('Concert tickets', 'Takeout — Thai') AND date >= ?`,
+).run(visaId, hhId, `${thisMonth}-01`)
 
 console.log('Seeded demo household with four months of budget history:')
 console.log('  jake@example.com / thefold')

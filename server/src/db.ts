@@ -356,6 +356,13 @@ CREATE TABLE instance_settings (
 );
 `
 
+// v9 — reconciliation: transactions carry a cleared flag ("has this hit the bank"),
+// imported rows arrive cleared (the bank statement is the source), manual entries start pending.
+const SCHEMA_V9 = `
+ALTER TABLE transactions ADD COLUMN cleared INTEGER NOT NULL DEFAULT 0;
+UPDATE transactions SET cleared = 1 WHERE import_hash IS NOT NULL;
+`
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: SCHEMA_V1 },
   { version: 2, sql: SCHEMA_V2 },
@@ -365,6 +372,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 6, sql: SCHEMA_V6 },
   { version: 7, sql: SCHEMA_V7 },
   { version: 8, sql: SCHEMA_V8 },
+  { version: 9, sql: SCHEMA_V9 },
 ]
 
 export function openDb(path: string): DatabaseSync {

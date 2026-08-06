@@ -45,7 +45,10 @@ The Fold exists because the pieces were scattered: Splitwise for splits, Mint fo
 - **Refunds & credits** — returns show up as green `+$` transactions that give money back to the envelope and unwind the who-owes-whom math.
 - **Stores with logos** — the add-expense box doubles as a store search: pick "Costco" and its logo and usual category come with it; new stores are created inline. Logos come from each store's website domain (Google's public favicon service, with letter-tile fallbacks), transactions show the store logo with a mini paid-by avatar, imports auto-match stores, and search finds them by name.
 - **Duplicate protection** — manual entry warns when something with the same amount already exists nearby, imports pre-check every row against existing transactions (flagged rows arrive unchecked), and a "possible duplicates" review finds same-amount-same-week pairs to keep or delete — with "not a duplicate" decisions remembered.
-- **Self-hosted account control** — the first account on the server is the admin; after that, signup is invite-only unless the admin opens registration (Settings → Server).
+- **Self-hosted account control** — the first account on the server is the admin; after that, signup is invite-only unless the admin opens registration (Settings → Server). Change your name, email, and password in Settings → Your account — changing the password signs out every other device, and you can see how many devices are signed in (with one-click "sign out everywhere else").
+- **Reconciliation** — every transaction knows whether the bank has confirmed it: imports arrive ✓cleared, manual entries start pending. Filter Spending to an account and tick entries off as your statement shows them (or "mark all cleared"), so a forgotten Venmo or a pending check can't hide.
+- **Month in review** — a recap page you can flip back through month by month: what you kept and your savings rate, who spent what by split share, where it went vs budget, which envelopes came in under, went over, or rolled savings forward, and the month's biggest purchases.
+- **Your data, exportable** — Settings → Your data downloads everything as JSON, all transactions as spreadsheet-ready CSV, and (admin) a consistent SQLite backup of the whole server.
 - **Search & filters** — search all spending by text, or filter by category, account, and who paid; every account on the Net worth page links to its activity.
 - **Reports** — cash flow (income vs spent vs kept, with savings rate) over 6 or 12 months, where it went by group, biggest movers, and who-spent-it by each person's *share* of the splits.
 - **Net worth (the Mint part)** — accounts for checking, savings, investments, retirement, property, and debts — joint or per-person — with dated balance snapshots and a household net-worth trend chart.
@@ -54,7 +57,8 @@ The Fold exists because the pieces were scattered: Splitwise for splits, Mint fo
 - **API tokens** — scoped bearer tokens so HA, Siri/Google shortcuts, or scripts can add grocery items, complete chores, and read a summary.
 - **Dashboard** — month at a glance: shared + personal budget burn, who-owes-whom, net worth, next trip countdown, your open tasks.
 - **Tested money math** — a vitest suite covers splits, contributions, balances, recurring, imports, and the API's edge cases (`npm test`).
-- **Installable** — PWA manifest, so it lives on your phone home screens.
+- **Installable & phone-first** — PWA manifest so it lives on your home screens, a four-tab bottom nav with a More sheet, budget rows and summaries laid out for a 390-px screen, and safe-area padding for notched phones. Dates use *your* clock — an expense added at 9pm never lands on tomorrow.
+- **Day-one guidance** — a "Get set up" checklist on Home (income → first budget → first expense → invite your partner) that checks itself off and gets out of the way.
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for what's next (bank sync, Google two-way sync, investments, Home Assistant date-night button…) and [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) for exactly how each integration will be wired.
 

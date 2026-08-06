@@ -13,6 +13,7 @@ import TripDetail from './pages/TripDetail'
 import Lists from './pages/Lists'
 import NetWorth from './pages/NetWorth'
 import Reports from './pages/Reports'
+import Review from './pages/Review'
 import Settings from './pages/Settings'
 
 interface MeContextValue {
@@ -210,6 +211,7 @@ export default function App() {
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/networth" element={<NetWorth />} />
           <Route path="/reports" element={<Reports />} />
+          <Route path="/review" element={<Review />} />
           <Route path="/trips" element={<Trips />} />
           <Route path="/trips/:id" element={<TripDetail />} />
           <Route path="/lists" element={<Lists />} />

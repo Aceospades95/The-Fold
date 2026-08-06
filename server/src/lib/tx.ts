@@ -22,6 +22,7 @@ export interface TxInput {
   recurring_id?: string | null
   import_hash?: string | null
   notes?: string | null
+  cleared?: 0 | 1
   splits: { user_id: string; share_cents: number }[]
   lines?: TxLineInput[]
 }
@@ -51,8 +52,8 @@ export function insertTransactionRaw(db: DatabaseSync, householdId: string, inpu
   const txId = id()
   const lines = normalizeLines(input)
   db.prepare(
-    `INSERT INTO transactions (id, household_id, kind, date, description, amount_cents, category_id, payer_user_id, account_id, merchant_id, import_batch_id, trip_expense_id, recurring_id, import_hash, notes, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO transactions (id, household_id, kind, date, description, amount_cents, category_id, payer_user_id, account_id, merchant_id, import_batch_id, trip_expense_id, recurring_id, import_hash, notes, cleared, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     txId,
     householdId,
@@ -69,6 +70,7 @@ export function insertTransactionRaw(db: DatabaseSync, householdId: string, inpu
     input.recurring_id ?? null,
     input.import_hash ?? null,
     input.notes ?? null,
+    input.cleared ?? (input.import_hash != null ? 1 : 0),
     now(),
   )
   const insertSplit = db.prepare(

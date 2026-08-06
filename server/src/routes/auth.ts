@@ -7,6 +7,7 @@ import {
   createSession,
   destroySession,
   hashPassword,
+  hashToken,
   requireAuth,
   userForToken,
   verifyPassword,
@@ -228,6 +229,16 @@ export async function publicAuthRoutes(app: FastifyInstance): Promise<void> {
   })
 }
 
+const changePasswordBody = z.object({
+  current_password: z.string(),
+  new_password: z.string().min(6).max(200),
+})
+
+const profileBody = z.object({
+  name: z.string().trim().min(1).max(60).optional(),
+  email: z.string().trim().email().toLowerCase().optional(),
+})
+
 export async function privateAuthRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('onRequest', requireAuth)
 
@@ -236,6 +247,57 @@ export async function privateAuthRoutes(app: FastifyInstance): Promise<void> {
     if (token) destroySession(app.db, token)
     reply.clearCookie(SESSION_COOKIE, { path: '/' })
     return { ok: true }
+  })
+
+  app.post('/auth/change-password', async (req) => {
+    const body = changePasswordBody.parse(req.body)
+    const row = app.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id) as
+      | { password_hash: string }
+      | undefined
+    if (!row || !verifyPassword(body.current_password, row.password_hash)) {
+      badRequest('That current password is not right.')
+    }
+    app.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(body.new_password), req.user.id)
+    // A changed password signs out every other device; this one stays in.
+    const token = req.cookies[SESSION_COOKIE]
+    app.db
+      .prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?')
+      .run(req.user.id, token ? hashToken(token) : '')
+    return { ok: true }
+  })
+
+  app.patch('/auth/profile', async (req) => {
+    const body = profileBody.parse(req.body)
+    if (body.email) {
+      const taken = app.db.prepare('SELECT 1 FROM users WHERE email = ? AND id != ?').get(body.email, req.user.id)
+      if (taken) badRequest('That email is already in use.')
+      app.db.prepare('UPDATE users SET email = ? WHERE id = ?').run(body.email, req.user.id)
+    }
+    if (body.name) {
+      app.db.prepare('UPDATE users SET name = ? WHERE id = ?').run(body.name, req.user.id)
+    }
+    return { ok: true }
+  })
+
+  app.get('/auth/sessions', async (req) => {
+    const token = req.cookies[SESSION_COOKIE]
+    const current = token ? hashToken(token) : ''
+    const rows = app.db
+      .prepare(
+        'SELECT token_hash, created_at, expires_at FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC',
+      )
+      .all(req.user.id, now()) as unknown as { token_hash: string; created_at: string; expires_at: string }[]
+    return {
+      sessions: rows.map((r) => ({ created_at: r.created_at, expires_at: r.expires_at, current: r.token_hash === current })),
+    }
+  })
+
+  app.post('/auth/logout-others', async (req) => {
+    const token = req.cookies[SESSION_COOKIE]
+    const result = app.db
+      .prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?')
+      .run(req.user.id, token ? hashToken(token) : '')
+    return { signed_out: Number(result.changes) }
   })
 }
 

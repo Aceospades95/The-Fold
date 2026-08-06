@@ -141,6 +141,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
       .object({
         month: z.string().regex(MONTH).optional(),
         uncategorized: z.coerce.boolean().optional(),
+        uncleared: z.coerce.boolean().optional(),
         q: z.string().trim().max(100).optional(),
         category: z.string().optional(),
         account: z.string().optional(),
@@ -150,6 +151,16 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
     if (query.uncategorized) {
       return {
         transactions: getTransactions(app.db, req.user.household_id, { uncategorizedOnly: true, limit: 300 }),
+      }
+    }
+    if (query.uncleared) {
+      // The reconcile view: every pending entry for one account, any month.
+      return {
+        transactions: getTransactions(app.db, req.user.household_id, {
+          unclearedOnly: true,
+          accountId: query.account || undefined,
+          limit: 300,
+        }),
       }
     }
     const filters = {
@@ -234,6 +245,18 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
     }
     writeLines(app.db, txId, lines)
     return { ok: true }
+  })
+
+  /** Reconciliation ticks: flip one or many transactions between pending and cleared. */
+  app.post('/transactions/set-cleared', async (req) => {
+    const { ids, cleared } = z
+      .object({ ids: z.array(z.string()).min(1).max(500), cleared: z.boolean() })
+      .parse(req.body)
+    const placeholders = ids.map(() => '?').join(',')
+    const result = app.db
+      .prepare(`UPDATE transactions SET cleared = ? WHERE household_id = ? AND id IN (${placeholders})`)
+      .run(cleared ? 1 : 0, req.user.household_id, ...ids)
+    return { updated: Number(result.changes) }
   })
 
   app.delete('/transactions/:id', async (req) => {

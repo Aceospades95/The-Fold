@@ -11,7 +11,8 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Theme system: light/dark/system + five accent palettes, per device.
 - [x] Budgeting methods: envelopes (zero-based), 50/30/20 with adjustable percentages, pay-yourself-first with a savings goal, and plain spending tracking — all over the same engine, with need/want/save tags per category.
 - [ ] Leave/unlink a household (reverse of merging) — needs a data-custody design first.
-- [ ] Password reset via email (depends on the SMTP driver in Phase 2).
+- [x] Change password in-app (revokes other sessions), profile edits, session list + sign-out-everywhere.
+- [ ] Password *reset* via email for a forgotten password (depends on the SMTP driver in Phase 2).
 
 ## ✅ Phase 0 — Foundation (this branch)
 
@@ -42,7 +43,7 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Instance admin: first account owns the server; invite-only signup with an admin toggle for open registration.
 - [ ] SimpleFIN Bridge sync: accounts, balances, transactions on a schedule.
 - [ ] Auto-rules that split across categories, not just one.
-- [ ] Reconciliation: tick imported transactions against the statement balance.
+- [x] Reconciliation: cleared/pending flags per transaction, account-scoped tick-off view, imports arrive cleared.
 - [ ] Settings encryption for stored credentials; rate limiting; cookie `Secure` when behind HTTPS.
 
 ## Phase 1b — Budget depth ✅
@@ -56,7 +57,7 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Category drilldown: six-month history, this month's transactions, quick-set, settings.
 - [x] Trends: budgeted vs spent over six months, spending by group, biggest movers.
 - [x] Per-month income overrides for bonus and slow months.
-- [ ] Month-in-review summary you can page back through.
+- [x] Month-in-review summary you can page back through (kept/savings rate, who spent what, wins, overspends, rollovers, biggest purchases).
 - [ ] Drag-to-reorder categories and groups (buttons/APIs exist; drag UI pending).
 - [ ] Credit-card float handling for people who pay the statement, not the purchase.
 
@@ -87,7 +88,7 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Automated test suite around the money math and API (splits, contributions, balances, recurring, imports).
 - [ ] Attachments/receipts on transactions and trip expenses.
 - [ ] Reports: category trends, spending by person, trip cost retrospectives.
-- [ ] Data export (full JSON/CSV dump) and scheduled SQLite backups.
+- [x] Data export: full JSON dump, transactions CSV, one-click SQLite backup (admin). Scheduled automatic backups still to come.
 
 ## Non-goals (on purpose)
 

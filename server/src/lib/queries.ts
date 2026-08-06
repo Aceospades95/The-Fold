@@ -32,19 +32,23 @@ export function getTransactions(
     end?: string
     limit?: number
     uncategorizedOnly?: boolean
+    unclearedOnly?: boolean
     q?: string
     categoryId?: string
     accountId?: string
     payerId?: string
   } = {},
 ): Tx[] {
-  let sql = `SELECT id, kind, date, description, amount_cents, category_id, payer_user_id, account_id, merchant_id, import_batch_id, trip_expense_id, recurring_id, notes
+  let sql = `SELECT id, kind, date, description, amount_cents, category_id, payer_user_id, account_id, merchant_id, import_batch_id, trip_expense_id, recurring_id, notes, cleared
              FROM transactions WHERE household_id = ?`
   const params: (string | number)[] = [householdId]
   if (opts.uncategorizedOnly) {
     sql += ` AND kind = 'expense' AND EXISTS (
                SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = transactions.id AND tl.category_id IS NULL
              )`
+  }
+  if (opts.unclearedOnly) {
+    sql += ' AND cleared = 0'
   }
   if (opts.q) {
     sql += ` AND (description LIKE ? OR EXISTS (

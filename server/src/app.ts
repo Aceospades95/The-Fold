@@ -9,6 +9,7 @@ import { HttpError } from './lib/util.js'
 import { privateAuthRoutes, publicAuthRoutes } from './routes/auth.js'
 import { budgetRoutes } from './routes/budget.js'
 import { calendarRoutes } from './routes/calendar.js'
+import { exportRoutes } from './routes/exporting.js'
 import { hookRoutes } from './routes/hooks.js'
 import { householdRoutes } from './routes/household.js'
 import { importRoutes } from './routes/importing.js'
@@ -19,6 +20,7 @@ import { listRoutes } from './routes/lists.js'
 import { merchantRoutes } from './routes/merchants.js'
 import { netWorthRoutes } from './routes/networth.js'
 import { recurringRoutes } from './routes/recurring.js'
+import { reviewRoutes } from './routes/review.js'
 import { summaryRoutes } from './routes/summary.js'
 import { transactionRoutes } from './routes/transactions.js'
 import { tripRoutes } from './routes/trips.js'
@@ -73,6 +75,8 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
       await priv.register(tripRoutes)
       await priv.register(listRoutes)
       await priv.register(summaryRoutes)
+      await priv.register(exportRoutes)
+      await priv.register(reviewRoutes)
     },
     { prefix: '/api' },
   )

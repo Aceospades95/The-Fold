@@ -277,6 +277,8 @@ export interface Tx {
   trip_expense_id: string | null
   recurring_id: string | null
   notes: string | null
+  /** 1 once the bank shows it (imports arrive cleared; manual entries start pending). */
+  cleared: 0 | 1
   splits: Split[]
   lines: TxLine[]
 }
@@ -529,6 +531,48 @@ export interface ListRow {
   sort: number
   archived: 0 | 1
   items: ListItemRow[]
+}
+
+export interface ReviewHighlight {
+  category_id: string
+  name: string
+  emoji: string | null
+  amount_cents: number
+}
+
+export interface ReviewResponse {
+  month: string
+  has_prev: boolean
+  has_next: boolean
+  income_cents: number
+  spent_cents: number
+  kept_cents: number
+  /** Percent of income kept; null when no income is set up. */
+  savings_rate: number | null
+  shared_spent_cents: number
+  transactions_count: number
+  uncategorized_count: number
+  vs_prev: { spent_delta_cents: number; income_delta_cents: number } | null
+  members: { user_id: string; name: string; color: string; share_cents: number; personal_spent_cents: number }[]
+  /** Envelopes that ended the month in the red (amount = how far over). */
+  overspent: ReviewHighlight[]
+  /** Non-rollover envelopes that came in under budget (amount = left unspent). */
+  wins: ReviewHighlight[]
+  /** Rollover envelopes carrying a positive balance forward (amount = what rolls). */
+  rolled_forward: ReviewHighlight[]
+  top_categories: { category_id: string; name: string; emoji: string | null; spent_cents: number; allocated_cents: number }[]
+  biggest_purchases: {
+    id: string
+    date: string
+    description: string
+    amount_cents: number
+    merchant_name: string | null
+    payer_user_id: string
+  }[]
+  /** The running who-owes-whom as of now (not month-scoped). */
+  balance: BalancesResponse['suggestion']
+  /** Net-worth change this month — only when reviewing the current month. */
+  net_worth_delta_cents: number | null
 }
 
 export interface SummaryResponse {

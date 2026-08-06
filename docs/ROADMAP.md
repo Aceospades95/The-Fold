@@ -44,7 +44,8 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [ ] SimpleFIN Bridge sync: accounts, balances, transactions on a schedule.
 - [ ] Auto-rules that split across categories, not just one.
 - [x] Reconciliation: cleared/pending flags per transaction, account-scoped tick-off view, imports arrive cleared.
-- [ ] Settings encryption for stored credentials; rate limiting; cookie `Secure` when behind HTTPS.
+- [x] Login rate limiting (10 misses / 15 min per account).
+- [ ] Settings encryption for stored credentials; cookie `Secure` when behind HTTPS.
 
 ## Phase 1b — Budget depth ✅
 
@@ -88,7 +89,8 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Automated test suite around the money math and API (splits, contributions, balances, recurring, imports).
 - [ ] Attachments/receipts on transactions and trip expenses.
 - [ ] Reports: category trends, spending by person, trip cost retrospectives.
-- [x] Data export: full JSON dump, transactions CSV, one-click SQLite backup (admin). Scheduled automatic backups still to come.
+- [x] Data export: full JSON dump, transactions CSV, one-click SQLite backup (admin).
+- [x] Automatic daily backups: dated copies in `data/backups/`, newest 14 kept.
 
 ## Non-goals (on purpose)
 

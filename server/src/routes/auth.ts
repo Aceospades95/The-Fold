@@ -214,19 +214,55 @@ export async function publicAuthRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/auth/login', async (req, reply) => {
     const body = loginBody.parse(req.body)
+    if (tooManyAttempts(body.email)) {
+      reply.code(429)
+      return { error: 'Too many attempts — wait 15 minutes and try again.' }
+    }
     const row = app.db
       .prepare('SELECT id, name, email, color, is_admin, password_hash FROM users WHERE email = ?')
       .get(body.email) as
       | { id: string; name: string; email: string; color: string; is_admin: 0 | 1; password_hash: string }
       | undefined
     if (!row || !verifyPassword(body.password, row.password_hash)) {
+      recordFailedAttempt(body.email)
       reply.code(401)
       return { error: 'Wrong email or password' }
     }
+    clearAttempts(body.email)
     const session = createSession(app.db, row.id)
     setCookie(reply, session.token, session.maxAgeSeconds)
     return { user: { id: row.id, name: row.name, email: row.email, color: row.color, is_admin: row.is_admin } }
   })
+}
+
+// Per-account brute-force brake: 10 misses in 15 minutes locks the door for a
+// bit. Kept in memory on purpose — a restart clears it, which is fine for the
+// household-server threat model (this is a speed bump, not a bank vault).
+const ATTEMPT_LIMIT = 10
+const ATTEMPT_WINDOW_MS = 15 * 60 * 1000
+const failedLogins = new Map<string, { count: number; first: number }>()
+
+function attemptsFor(email: string): { count: number; first: number } | undefined {
+  const entry = failedLogins.get(email)
+  if (entry && Date.now() - entry.first > ATTEMPT_WINDOW_MS) {
+    failedLogins.delete(email)
+    return undefined
+  }
+  return entry
+}
+
+function tooManyAttempts(email: string): boolean {
+  return (attemptsFor(email)?.count ?? 0) >= ATTEMPT_LIMIT
+}
+
+function recordFailedAttempt(email: string): void {
+  const entry = attemptsFor(email)
+  if (entry) entry.count += 1
+  else failedLogins.set(email, { count: 1, first: Date.now() })
+}
+
+function clearAttempts(email: string): void {
+  failedLogins.delete(email)
 }
 
 const changePasswordBody = z.object({

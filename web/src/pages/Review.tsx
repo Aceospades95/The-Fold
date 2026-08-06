@@ -46,7 +46,7 @@ function HighlightList({
   return (
     <Card>
       <CardTitle>
-        {emoji} {title}
+        {emoji} {title} <span className="font-normal normal-case text-slate-400">— {suffix}</span>
       </CardTitle>
       <ul className="space-y-1.5">
         {items.map((item) => (
@@ -61,7 +61,6 @@ function HighlightList({
             >
               {fmtMoney(item.amount_cents)}
             </span>
-            <span className="w-24 text-right text-xs text-slate-400">{suffix}</span>
           </li>
         ))}
       </ul>

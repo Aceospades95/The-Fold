@@ -1,10 +1,12 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { SummaryResponse } from '@fold/shared'
-import { ArrowRight, MapPin } from 'lucide-react'
+import type { Category, Merchant, SummaryResponse } from '@fold/shared'
+import { ArrowRight, Check, Circle, MapPin, Plus, X } from 'lucide-react'
 import { api, useApi } from '../api'
 import { useMe } from '../App'
 import { fmtDate, fmtMoney, fmtMonth, fmtRange } from '../format'
-import { Avatar, Card, CardTitle, Chip, EmptyState, ProgressBar } from '../ui'
+import { Avatar, Button, Card, CardTitle, Chip, EmptyState, ProgressBar, cls } from '../ui'
+import TxModal from '../components/TxModal'
 
 function greeting(): string {
   const hour = new Date().getHours()
@@ -13,9 +15,99 @@ function greeting(): string {
   return 'Good evening'
 }
 
+const SETUP_DISMISSED_KEY = 'fold-setup-dismissed'
+
+function SetupChecklist({
+  setup,
+  onAddExpense,
+  onDismiss,
+}: {
+  setup: SummaryResponse['setup']
+  onAddExpense: () => void
+  onDismiss: () => void
+}) {
+  const steps: { done: boolean; label: string; hint: string; to?: string; onClick?: () => void }[] = [
+    {
+      done: setup.has_income,
+      label: 'Add your income',
+      hint: 'So the budget knows what there is to split.',
+      to: '/settings#income',
+    },
+    {
+      done: setup.has_budget,
+      label: 'Set this month’s budget',
+      hint: 'Give the envelopes their first numbers — Auto-fill helps.',
+      to: '/budget',
+    },
+    {
+      done: setup.has_transaction,
+      label: 'Add your first expense',
+      hint: 'Or import a bank statement on the Spending page.',
+      onClick: onAddExpense,
+    },
+    {
+      done: setup.partner_linked,
+      label: 'Invite your partner',
+      hint: 'They sign up with your invite code and you share one view.',
+      to: '/settings#partner',
+    },
+  ]
+  const doneCount = steps.filter((s) => s.done).length
+  return (
+    <Card className="border-violet-200">
+      <div className="flex items-start justify-between gap-3">
+        <CardTitle>Get set up · {doneCount} of {steps.length}</CardTitle>
+        <button onClick={onDismiss} title="Hide this checklist" className="rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-500">
+          <X size={15} />
+        </button>
+      </div>
+      <ul className="mt-1 space-y-2.5">
+        {steps.map((step) => {
+          const inner = (
+            <>
+              {step.done ? (
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                  <Check size={12} strokeWidth={3} />
+                </span>
+              ) : (
+                <Circle size={20} className="mt-0.5 shrink-0 text-slate-300" />
+              )}
+              <span className="min-w-0">
+                <span className={cls('block text-sm font-medium', step.done ? 'text-slate-400 line-through' : 'text-slate-800 group-hover:text-violet-700')}>
+                  {step.label}
+                </span>
+                {!step.done && <span className="block text-xs text-slate-500">{step.hint}</span>}
+              </span>
+            </>
+          )
+          return (
+            <li key={step.label}>
+              {step.done ? (
+                <span className="flex items-start gap-2.5">{inner}</span>
+              ) : step.to ? (
+                <Link to={step.to} className="group flex items-start gap-2.5">
+                  {inner}
+                </Link>
+              ) : (
+                <button onClick={step.onClick} className="group flex w-full items-start gap-2.5 text-left">
+                  {inner}
+                </button>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </Card>
+  )
+}
+
 export default function Dashboard() {
   const { me } = useMe()
   const { data, reload } = useApi<SummaryResponse>('/summary')
+  const { data: categoriesData } = useApi<{ categories: Category[] }>('/categories')
+  const { data: merchantsData, reload: reloadMerchants } = useApi<{ merchants: Merchant[] }>('/merchants')
+  const [adding, setAdding] = useState(false)
+  const [setupHidden, setSetupHidden] = useState(() => localStorage.getItem(SETUP_DISMISSED_KEY) === '1')
   if (!data) return null
 
   const members = me.household.members
@@ -29,14 +121,34 @@ export default function Dashboard() {
     reload()
   }
 
+  const setup = data.setup
+  const coreSetupDone = setup.has_income && setup.has_budget && setup.has_transaction
+  const showSetup = !setupHidden && !(coreSetupDone && setup.partner_linked)
+
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold">
-          {greeting()}, {me.user.name.split(' ')[0]}
-        </h1>
-        <p className="text-sm text-slate-500">Here’s where things stand for {fmtMonth(data.month)}.</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">
+            {greeting()}, {me.user.name.split(' ')[0]}
+          </h1>
+          <p className="text-sm text-slate-500">Here’s where things stand for {fmtMonth(data.month)}.</p>
+        </div>
+        <Button onClick={() => setAdding(true)}>
+          <Plus size={15} /> Add expense
+        </Button>
       </div>
+
+      {showSetup && (
+        <SetupChecklist
+          setup={setup}
+          onAddExpense={() => setAdding(true)}
+          onDismiss={() => {
+            localStorage.setItem(SETUP_DISMISSED_KEY, '1')
+            setSetupHidden(true)
+          }}
+        />
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>
@@ -228,6 +340,20 @@ export default function Dashboard() {
           )}
         </Card>
       </div>
+
+      {adding && categoriesData && (
+        <TxModal
+          existing={null}
+          categories={categoriesData.categories}
+          merchants={merchantsData?.merchants ?? []}
+          onMerchantsChanged={reloadMerchants}
+          onClose={() => setAdding(false)}
+          onSaved={() => {
+            setAdding(false)
+            reload()
+          }}
+        />
+      )}
     </div>
   )
 }

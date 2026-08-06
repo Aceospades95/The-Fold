@@ -205,8 +205,8 @@ export default function NetWorth() {
       ) : (
         <>
           <Card>
-            <div className="grid grid-cols-3 gap-4">
-              <div>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <div className="col-span-2 sm:col-span-1">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Net worth</p>
                 <p className="text-2xl font-bold tabular-nums">{fmtMoney(data.net_cents)}</p>
                 {data.delta_month_cents != null && (
@@ -217,11 +217,11 @@ export default function NetWorth() {
               </div>
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Assets</p>
-                <p className="text-2xl font-bold tabular-nums text-emerald-600">{fmtMoney(data.assets_cents)}</p>
+                <p className="text-lg font-bold tabular-nums text-emerald-600 sm:text-2xl">{fmtMoney(data.assets_cents)}</p>
               </div>
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Owed</p>
-                <p className="text-2xl font-bold tabular-nums text-red-500">{fmtMoney(data.liabilities_cents)}</p>
+                <p className="text-lg font-bold tabular-nums text-red-500 sm:text-2xl">{fmtMoney(data.liabilities_cents)}</p>
               </div>
             </div>
             <div className="mt-4">

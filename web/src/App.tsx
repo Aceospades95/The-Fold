@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import type { MeResponse, UserPublic } from '@fold/shared'
-import { BarChart3, CalendarRange, LayoutDashboard, ListChecks, LogOut, PiggyBank, ReceiptText, Settings as SettingsIcon, TrendingUp } from 'lucide-react'
+import { BarChart3, CalendarRange, LayoutDashboard, ListChecks, LogOut, MoreHorizontal, PiggyBank, ReceiptText, Settings as SettingsIcon, TrendingUp } from 'lucide-react'
 import { api } from './api'
 import { Avatar, cls } from './ui'
 import Login from './pages/Login'
@@ -40,8 +40,17 @@ const NAV = [
   { to: '/settings', label: 'Settings', icon: SettingsIcon },
 ]
 
+// Phones get four real tabs (the daily set) + a More sheet — eight cramped tabs helps nobody.
+const MOBILE_MAIN = ['/', '/budget', '/transactions', '/lists']
+const MAIN_TABS = NAV.filter((n) => MOBILE_MAIN.includes(n.to))
+const MORE_TABS = NAV.filter((n) => !MOBILE_MAIN.includes(n.to))
+
 function Shell({ children }: { children: ReactNode }) {
   const { me, signOut } = useMe()
+  const location = useLocation()
+  const [moreOpen, setMoreOpen] = useState(false)
+  useEffect(() => setMoreOpen(false), [location.pathname])
+  const onMorePage = MORE_TABS.some((n) => location.pathname.startsWith(n.to))
   return (
     <div className="min-h-screen md:flex">
       <aside className="hidden w-56 shrink-0 flex-col border-r border-slate-200 bg-white px-3 py-5 md:flex md:sticky md:top-0 md:h-screen">
@@ -94,16 +103,43 @@ function Shell({ children }: { children: ReactNode }) {
           </button>
         </header>
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 pb-24 md:px-8 md:pb-8">{children}</main>
-        <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-slate-200 bg-white py-1.5 md:hidden">
-          {NAV.map(({ to, label, icon: Icon }) => (
+        {moreOpen && (
+          <div className="fixed inset-0 z-40 bg-slate-900/30 md:hidden" onClick={() => setMoreOpen(false)}>
+            <div
+              className="absolute inset-x-0 bottom-[3.5rem] rounded-t-2xl border-t border-slate-200 bg-white p-4 pb-3 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="grid grid-cols-2 gap-2">
+                {MORE_TABS.map(({ to, label, icon: Icon }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    className={({ isActive }) =>
+                      cls(
+                        'flex items-center gap-2.5 rounded-xl px-3.5 py-3 text-sm font-medium',
+                        isActive ? 'bg-violet-50 text-violet-700' : 'bg-slate-50 text-slate-700',
+                      )
+                    }
+                  >
+                    <Icon size={18} />
+                    {label}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+        <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-slate-200 bg-white pt-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] md:hidden">
+          {MAIN_TABS.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
               end={to === '/'}
+              onClick={() => setMoreOpen(false)}
               className={({ isActive }) =>
                 cls(
-                  'flex flex-col items-center gap-0.5 rounded-lg px-2 py-1 text-[10px] font-medium',
-                  isActive ? 'text-violet-700' : 'text-slate-500',
+                  'flex flex-col items-center gap-0.5 rounded-lg px-3 py-1 text-[10px] font-medium',
+                  isActive && !moreOpen ? 'text-violet-700' : 'text-slate-500',
                 )
               }
             >
@@ -111,6 +147,16 @@ function Shell({ children }: { children: ReactNode }) {
               {label}
             </NavLink>
           ))}
+          <button
+            onClick={() => setMoreOpen((v) => !v)}
+            className={cls(
+              'flex flex-col items-center gap-0.5 rounded-lg px-3 py-1 text-[10px] font-medium',
+              moreOpen || onMorePage ? 'text-violet-700' : 'text-slate-500',
+            )}
+          >
+            <MoreHorizontal size={19} />
+            More
+          </button>
         </nav>
       </div>
     </div>

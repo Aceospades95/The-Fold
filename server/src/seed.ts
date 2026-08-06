@@ -9,7 +9,7 @@ import { dirname, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { hashPassword } from './auth.js'
 import { openDb } from './db.js'
-import { id, now, shiftMonth } from './lib/util.js'
+import { currentMonth, id, now, shiftMonth } from './lib/util.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const dbPath = process.env.FOLD_DB ?? resolve(here, '../../data/the-fold.db')
@@ -28,7 +28,7 @@ if (existing > 0) {
   process.exit(0)
 }
 
-const thisMonth = new Date().toISOString().slice(0, 7)
+const thisMonth = currentMonth()
 const months = [3, 2, 1, 0].map((back) => shiftMonth(thisMonth, -back))
 const [m3, m2, m1, m0] = months
 const day = (month: string, d: number) => `${month}-${String(d).padStart(2, '0')}`

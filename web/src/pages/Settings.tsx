@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type {
   ApiTokenInfo,
   BudgetMethod,
@@ -713,6 +713,13 @@ export default function Settings() {
   const calendarUrl = `${window.location.origin}${me.household.calendar_path}`
   const customTotal = Object.values(customSplit).reduce((sum, v) => sum + v, 0)
 
+  useEffect(() => {
+    const anchor = window.location.hash.slice(1)
+    if (!anchor) return
+    const t = setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth' }), 120)
+    return () => clearTimeout(t)
+  }, [])
+
   async function saveHousehold(): Promise<void> {
     await api.patch('/household', {
       name: householdName,
@@ -753,6 +760,7 @@ export default function Settings() {
 
       <AppearanceCard />
       <ServerCard />
+      <div id="partner" className="scroll-mt-4" />
       <PartnerCard />
 
       <Card>
@@ -780,6 +788,7 @@ export default function Settings() {
         </div>
       </Card>
 
+      <div id="income" className="scroll-mt-4" />
       <Card>
         <CardTitle
           action={

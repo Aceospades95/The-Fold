@@ -542,4 +542,5 @@ export interface SummaryResponse {
   my_tasks: { id: string; list_id: string; list_name: string; text: string; due_date: string | null }[]
   recent_transactions: Tx[]
   net_worth: { net_cents: number; delta_month_cents: number | null; account_count: number } | null
+  setup: { has_income: boolean; has_budget: boolean; has_transaction: boolean; partner_linked: boolean }
 }

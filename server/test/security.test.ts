@@ -84,6 +84,29 @@ describe('change password', () => {
   })
 })
 
+describe('sliding sessions', () => {
+  it('renews a session past its halfway mark and re-issues the cookie', async () => {
+    const a = await signup(app, { name: 'Jake', email: 'jake@slide.dev' })
+    // Backdate the session so only 5 days remain of the 30-day window.
+    const soon = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString()
+    ;(app as FastifyInstance & { db: any }).db
+      .prepare('UPDATE sessions SET expires_at = ?')
+      .run(soon)
+
+    const res = await app.inject({ method: 'GET', url: '/api/me', cookies: a.cookie })
+    expect(res.statusCode).toBe(200)
+    expect(String(res.headers['set-cookie'])).toContain('fold_session=')
+    const row = (app as FastifyInstance & { db: any }).db
+      .prepare('SELECT expires_at FROM sessions LIMIT 1')
+      .get() as { expires_at: string }
+    expect(Date.parse(row.expires_at)).toBeGreaterThan(Date.now() + 25 * 24 * 60 * 60 * 1000)
+
+    // A fresh session (nowhere near halfway) is left alone.
+    const again = await app.inject({ method: 'GET', url: '/api/me', cookies: a.cookie })
+    expect(again.headers['set-cookie']).toBeUndefined()
+  })
+})
+
 describe('profile edits', () => {
   it('renames, re-emails, and refuses a taken email', async () => {
     const { cookie, cookieB } = await createLinkedHousehold(app, ['Jake', 'Sam'], 'prof.dev')

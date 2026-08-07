@@ -9,6 +9,7 @@ import {
   hashPassword,
   hashToken,
   requireAuth,
+  setSessionCookie,
   userForToken,
   verifyPassword,
 } from '../auth.js'
@@ -132,15 +133,6 @@ export function nextMemberColor(db: DatabaseSync, householdId: string): string {
   return MEMBER_COLORS.find((color) => !used.includes(color)) ?? MEMBER_COLORS[used.length % MEMBER_COLORS.length]
 }
 
-export function setCookie(reply: { setCookie: Function }, token: string, maxAgeSeconds: number): void {
-  reply.setCookie(SESSION_COOKIE, token, {
-    path: '/',
-    httpOnly: true,
-    sameSite: 'lax',
-    maxAge: maxAgeSeconds,
-  })
-}
-
 export function openSignupEnabled(app: FastifyInstance): boolean {
   const row = app.db.prepare(`SELECT value FROM instance_settings WHERE key = 'open_signup'`).get() as
     | { value: string }
@@ -207,7 +199,7 @@ export async function publicAuthRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const session = createSession(app.db, userId)
-    setCookie(reply, session.token, session.maxAgeSeconds)
+    setSessionCookie(req, reply, session.token, session.maxAgeSeconds)
     const user = app.db.prepare('SELECT id, name, email, color, is_admin FROM users WHERE id = ?').get(userId)
     return { user }
   })
@@ -230,7 +222,7 @@ export async function publicAuthRoutes(app: FastifyInstance): Promise<void> {
     }
     clearAttempts(body.email)
     const session = createSession(app.db, row.id)
-    setCookie(reply, session.token, session.maxAgeSeconds)
+    setSessionCookie(req, reply, session.token, session.maxAgeSeconds)
     return { user: { id: row.id, name: row.name, email: row.email, color: row.color, is_admin: row.is_admin } }
   })
 }
@@ -257,8 +249,22 @@ function tooManyAttempts(email: string): boolean {
 
 function recordFailedAttempt(email: string): void {
   const entry = attemptsFor(email)
-  if (entry) entry.count += 1
-  else failedLogins.set(email, { count: 1, first: Date.now() })
+  if (entry) {
+    entry.count += 1
+    return
+  }
+  // Keep the map bounded even under a spray of made-up emails.
+  if (failedLogins.size >= 300) {
+    for (const [key, value] of failedLogins) {
+      if (Date.now() - value.first > ATTEMPT_WINDOW_MS) failedLogins.delete(key)
+    }
+    while (failedLogins.size >= 300) {
+      const oldest = failedLogins.keys().next().value
+      if (oldest == null) break
+      failedLogins.delete(oldest)
+    }
+  }
+  failedLogins.set(email, { count: 1, first: Date.now() })
 }
 
 function clearAttempts(email: string): void {

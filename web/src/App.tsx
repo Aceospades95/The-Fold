@@ -1,9 +1,28 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import type { MeResponse, UserPublic } from '@fold/shared'
-import { BarChart3, CalendarRange, LayoutDashboard, ListChecks, LogOut, MoreHorizontal, PiggyBank, ReceiptText, Settings as SettingsIcon, TrendingUp } from 'lucide-react'
-import { api } from './api'
+import { BarChart3, CalendarRange, LayoutDashboard, ListChecks, LogOut, MoreHorizontal, PiggyBank, ReceiptText, Settings as SettingsIcon, Sparkles, TrendingUp } from 'lucide-react'
+import { api, onConnectionChange } from './api'
 import { Avatar, cls } from './ui'
+
+/** One slim banner while the server is unreachable; probes until it's back. */
+function OfflineBanner() {
+  const [offline, setOffline] = useState(false)
+  useEffect(() => onConnectionChange((state) => setOffline(state.offline)), [])
+  useEffect(() => {
+    if (!offline) return
+    const timer = setInterval(() => {
+      api.get('/health').catch(() => {})
+    }, 5000)
+    return () => clearInterval(timer)
+  }, [offline])
+  if (!offline) return null
+  return (
+    <div className="fixed inset-x-0 top-0 z-50 bg-amber-500 py-1.5 text-center text-xs font-semibold text-white">
+      Can’t reach The Fold’s server — retrying…
+    </div>
+  )
+}
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Budget from './pages/Budget'
@@ -11,6 +30,7 @@ import Transactions from './pages/Transactions'
 import Trips from './pages/Trips'
 import TripDetail from './pages/TripDetail'
 import Lists from './pages/Lists'
+import Insights from './pages/Insights'
 import NetWorth from './pages/NetWorth'
 import Reports from './pages/Reports'
 import Review from './pages/Review'
@@ -35,6 +55,7 @@ const NAV = [
   { to: '/budget', label: 'Budget', icon: PiggyBank },
   { to: '/transactions', label: 'Spending', icon: ReceiptText },
   { to: '/networth', label: 'Net worth', icon: TrendingUp },
+  { to: '/insights', label: 'Insights', icon: Sparkles },
   { to: '/reports', label: 'Reports', icon: BarChart3 },
   { to: '/trips', label: 'Trips', icon: CalendarRange },
   { to: '/lists', label: 'Lists', icon: ListChecks },
@@ -187,10 +208,26 @@ export default function App() {
       .catch(() => setPhase('login'))
   }, [])
 
+  // A session that expires mid-use bounces to sign-in instead of a dead page.
+  useEffect(() => {
+    return onConnectionChange((state) => {
+      if (state.unauthorized) {
+        setMe(null)
+        setPhase('login')
+      }
+    })
+  }, [])
+
   if (phase === 'loading') {
     return <div className="flex min-h-screen items-center justify-center text-3xl">🪺</div>
   }
-  if (phase === 'login' || !me) return <Login onDone={() => void loadMe()} hasUsers={boot.has_users} signupOpen={boot.signup_open} />
+  if (phase === 'login' || !me)
+    return (
+      <>
+        <OfflineBanner />
+        <Login onDone={() => void loadMe()} hasUsers={boot.has_users} signupOpen={boot.signup_open} />
+      </>
+    )
 
   const context: MeContextValue = {
     me,
@@ -204,6 +241,7 @@ export default function App() {
 
   return (
     <MeContext.Provider value={context}>
+      <OfflineBanner />
       <Shell>
         <Routes location={location}>
           <Route path="/" element={<Dashboard />} />
@@ -212,6 +250,7 @@ export default function App() {
           <Route path="/networth" element={<NetWorth />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/review" element={<Review />} />
+          <Route path="/insights" element={<Insights />} />
           <Route path="/trips" element={<Trips />} />
           <Route path="/trips/:id" element={<TripDetail />} />
           <Route path="/lists" element={<Lists />} />

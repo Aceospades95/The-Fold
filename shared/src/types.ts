@@ -533,6 +533,53 @@ export interface ListRow {
   items: ListItemRow[]
 }
 
+export interface InsightsResponse {
+  months: number
+  from: string
+  to: string
+  /** One entry per day with activity: expenses net of refunds. */
+  daily: { date: string; total_cents: number; count: number }[]
+  habits: {
+    no_spend_days_30: number
+    longest_no_spend_streak_30: number
+    /** 0 = Sunday … 6 = Saturday. */
+    busiest_weekday: number
+    weekend_share_pct: number
+    autopilot_share_pct: number
+    avg_purchase_cents: number
+    tx_per_week: number
+  }
+  burn: {
+    days_in_month: number
+    today_day: number
+    /** Cumulative spend by day of month, index 0 = day 1. */
+    this_month: number[]
+    last_month: number[]
+    budget_cents: number
+  }
+  /** Average spend per occurrence of each weekday, Sun..Sat. */
+  weekday_avg: number[]
+  /** This month's money flow: each member's income into shared / their personal / kept. */
+  flow: {
+    month: string
+    members: {
+      user_id: string
+      name: string
+      color: string
+      income_cents: number
+      shared_cents: number
+      personal_cents: number
+      kept_cents: number
+    }[]
+    shared_total_cents: number
+  }
+  /** Category totals over the window, tagged with their group for the treemap. */
+  treemap: { category_id: string; name: string; emoji: string | null; group: string; total_cents: number }[]
+  merchants: { id: string; name: string; domain: string | null; total_cents: number; visits: number }[]
+  /** Per-category monthly spend over the window, oldest first. */
+  sparklines: { category_id: string; name: string; emoji: string | null; scope: CategoryScope; months: number[] }[]
+}
+
 export interface ReviewHighlight {
   category_id: string
   name: string

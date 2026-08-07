@@ -460,13 +460,15 @@ const insertRecurring = db.prepare(
    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
 )
 const nextMonth = shiftMonth(thisMonth, 1)
+const rentRecurringId = id()
+const internetRecurringId = id()
 insertRecurring.run(
-  id(), hhId, 'Rent', 210000, cat['Rent / Mortgage'], jake,
+  rentRecurringId, hhId, 'Rent', 210000, cat['Rent / Mortgage'], jake,
   JSON.stringify(byIncome(210000).map(([user_id, share_cents]) => ({ user_id, share_cents }))),
   'monthly', 1, day(nextMonth, 1), 'Auto-posts on the 1st', now(),
 )
 insertRecurring.run(
-  id(), hhId, 'Internet', 8000, cat['Internet & phone'], jake,
+  internetRecurringId, hhId, 'Internet', 8000, cat['Internet & phone'], jake,
   JSON.stringify([{ user_id: jake, share_cents: 4000 }, { user_id: sam, share_cents: 4000 }]),
   'monthly', 8, day(nextMonth, 8), null, now(),
 )
@@ -498,6 +500,11 @@ linkMerchant.run(merchants['Target'], hhId, '%Target%')
 linkMerchant.run(merchants['Target'], hhId, '%TARGET%')
 linkMerchant.run(merchants['Amazon'], hhId, '%AMZN%')
 linkMerchant.run(merchants['Blue Bottle Coffee'], hhId, '%BLUE BOTTLE%')
+
+// The rent and internet history came from the recurring templates (so the
+// autopilot share on Insights reflects reality).
+db.prepare(`UPDATE transactions SET recurring_id = ? WHERE household_id = ? AND description = 'Rent'`).run(rentRecurringId, hhId)
+db.prepare(`UPDATE transactions SET recurring_id = ? WHERE household_id = ? AND description = 'Internet'`).run(internetRecurringId, hhId)
 
 // The three unclassified transactions arrived via a Visa statement import.
 const batchId = id()

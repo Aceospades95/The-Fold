@@ -14,6 +14,7 @@ import { hookRoutes } from './routes/hooks.js'
 import { householdRoutes } from './routes/household.js'
 import { importRoutes } from './routes/importing.js'
 import { incomeRoutes } from './routes/income.js'
+import { insightsRoutes } from './routes/insights.js'
 import { integrationRoutes } from './routes/integrations.js'
 import { instanceRoutes } from './routes/instance.js'
 import { listRoutes } from './routes/lists.js'
@@ -77,6 +78,7 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
       await priv.register(summaryRoutes)
       await priv.register(exportRoutes)
       await priv.register(reviewRoutes)
+      await priv.register(insightsRoutes)
     },
     { prefix: '/api' },
   )
@@ -84,7 +86,18 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
   app.get('/api/health', async () => ({ ok: true, app: 'the-fold' }))
 
   if (opts.staticDir && existsSync(opts.staticDir)) {
-    await app.register(fastifyStatic, { root: opts.staticDir })
+    await app.register(fastifyStatic, {
+      root: opts.staticDir,
+      setHeaders: (res, filePath) => {
+        // Vite content-hashes everything under /assets — cache those forever;
+        // index.html must always revalidate so deploys show up immediately.
+        if (/[\\/]assets[\\/]/.test(filePath)) {
+          res.setHeader('cache-control', 'public, max-age=31536000, immutable')
+        } else {
+          res.setHeader('cache-control', 'no-cache')
+        }
+      },
+    })
     app.setNotFoundHandler((req, reply) => {
       if (req.method === 'GET' && !req.url.startsWith('/api/')) {
         return reply.sendFile('index.html')

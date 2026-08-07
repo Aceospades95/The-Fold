@@ -44,7 +44,8 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [ ] SimpleFIN Bridge sync: accounts, balances, transactions on a schedule.
 - [ ] Auto-rules that split across categories, not just one.
 - [x] Reconciliation: cleared/pending flags per transaction, account-scoped tick-off view, imports arrive cleared.
-- [x] Login rate limiting (10 misses / 15 min per account).
+- [x] Login rate limiting (10 misses / 15 min per account, bounded memory).
+- [x] Offline resilience (reconnect banner + auto-refetch), session-expiry redirect, sliding session renewal, `Secure` cookies behind HTTPS, immutable asset caching, Docker healthcheck.
 - [ ] Settings encryption for stored credentials; cookie `Secure` when behind HTTPS.
 
 ## Phase 1b — Budget depth ✅
@@ -88,7 +89,8 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] PWA manifest (installable on phones); offline grocery list still to come.
 - [x] Automated test suite around the money math and API (splits, contributions, balances, recurring, imports).
 - [ ] Attachments/receipts on transactions and trip expenses.
-- [ ] Reports: category trends, spending by person, trip cost retrospectives.
+- [x] Insights page: spending heatmap, cumulative burn vs budget, weekday pattern, income→spending flow, category treemap, top stores, per-envelope sparklines, habit stats — with tooltips, table twins, validated palette, dark mode.
+- [ ] Reports: trip cost retrospectives.
 - [x] Data export: full JSON dump, transactions CSV, one-click SQLite backup (admin).
 - [x] Automatic daily backups: dated copies in `data/backups/`, newest 14 kept.
 

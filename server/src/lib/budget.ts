@@ -389,16 +389,35 @@ export function computeTrends(db: DatabaseSync, householdId: string, monthCount:
     }
   })
 
-  const by_group = [...groups, { id: null, name: 'Ungrouped', emoji: null, sort: 999 } as unknown as CategoryGroup].map(
-    (group) => {
-      const inGroup = categories.filter((c) => (c.group_id ?? null) === (group.id ?? null))
-      const spent = inGroup.reduce(
-        (sum, c) => sum + months.reduce((inner, m) => inner + (spending.get(`${c.id}|${m}`) ?? 0), 0),
-        0,
-      )
-      return { group_id: group.id, name: group.name, emoji: group.emoji, spent_cents: spent }
+  const sumSpent = (list: Category[]): number =>
+    list.reduce((sum, c) => sum + months.reduce((inner, m) => inner + (spending.get(`${c.id}|${m}`) ?? 0), 0), 0)
+  const members = db.prepare('SELECT id, name FROM users WHERE household_id = ?').all(householdId) as unknown as {
+    id: string
+    name: string
+  }[]
+  const by_group = [
+    ...groups.map((group) => ({
+      group_id: group.id,
+      name: group.name,
+      emoji: group.emoji,
+      spent_cents: sumSpent(categories.filter((c) => c.group_id === group.id)),
+    })),
+    // Ungrouped personal envelopes read as each person's spending, not an anonymous "Ungrouped".
+    ...members.map((member) => ({
+      group_id: null,
+      name: `${member.name.split(' ')[0]}’s personal`,
+      emoji: '👤',
+      spent_cents: sumSpent(
+        categories.filter((c) => c.scope === 'personal' && c.owner_user_id === member.id && c.group_id == null),
+      ),
+    })),
+    {
+      group_id: null,
+      name: 'Other shared',
+      emoji: null,
+      spent_cents: sumSpent(categories.filter((c) => c.scope === 'shared' && c.group_id == null)),
     },
-  ).filter((g) => g.spent_cents > 0)
+  ].filter((g) => g.spent_cents > 0)
 
   const previous = shiftMonth(to, -1)
   const movers = categories

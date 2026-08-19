@@ -1,9 +1,28 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import type { MeResponse, UserPublic } from '@fold/shared'
-import { BarChart3, CalendarRange, LayoutDashboard, ListChecks, LogOut, PiggyBank, ReceiptText, Settings as SettingsIcon, TrendingUp } from 'lucide-react'
-import { api } from './api'
+import { BarChart3, CalendarRange, LayoutDashboard, ListChecks, LogOut, MoreHorizontal, PiggyBank, ReceiptText, Settings as SettingsIcon, SlidersHorizontal, Sparkles, TrendingUp } from 'lucide-react'
+import { api, onConnectionChange } from './api'
 import { Avatar, cls } from './ui'
+
+/** One slim banner while the server is unreachable; probes until it's back. */
+function OfflineBanner() {
+  const [offline, setOffline] = useState(false)
+  useEffect(() => onConnectionChange((state) => setOffline(state.offline)), [])
+  useEffect(() => {
+    if (!offline) return
+    const timer = setInterval(() => {
+      api.get('/health').catch(() => {})
+    }, 5000)
+    return () => clearInterval(timer)
+  }, [offline])
+  if (!offline) return null
+  return (
+    <div className="fixed inset-x-0 top-0 z-50 bg-amber-500 py-1.5 text-center text-xs font-semibold text-white">
+      Can’t reach The Fold’s server — retrying…
+    </div>
+  )
+}
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Budget from './pages/Budget'
@@ -11,8 +30,11 @@ import Transactions from './pages/Transactions'
 import Trips from './pages/Trips'
 import TripDetail from './pages/TripDetail'
 import Lists from './pages/Lists'
+import Insights from './pages/Insights'
 import NetWorth from './pages/NetWorth'
+import Plan from './pages/Plan'
 import Reports from './pages/Reports'
+import Review from './pages/Review'
 import Settings from './pages/Settings'
 
 interface MeContextValue {
@@ -31,17 +53,29 @@ export function useMe(): MeContextValue {
 
 const NAV = [
   { to: '/', label: 'Home', icon: LayoutDashboard },
+  { to: '/plan', label: 'Plan', icon: SlidersHorizontal },
   { to: '/budget', label: 'Budget', icon: PiggyBank },
   { to: '/transactions', label: 'Spending', icon: ReceiptText },
   { to: '/networth', label: 'Net worth', icon: TrendingUp },
+  { to: '/insights', label: 'Insights', icon: Sparkles },
   { to: '/reports', label: 'Reports', icon: BarChart3 },
   { to: '/trips', label: 'Trips', icon: CalendarRange },
   { to: '/lists', label: 'Lists', icon: ListChecks },
   { to: '/settings', label: 'Settings', icon: SettingsIcon },
 ]
 
+// Phones get four real tabs + a More sheet — the shared budget is the heart of
+// the app, so Plan rides up front and Lists lives one tap away in More.
+const MOBILE_MAIN = ['/', '/plan', '/budget', '/transactions']
+const MAIN_TABS = NAV.filter((n) => MOBILE_MAIN.includes(n.to))
+const MORE_TABS = NAV.filter((n) => !MOBILE_MAIN.includes(n.to))
+
 function Shell({ children }: { children: ReactNode }) {
   const { me, signOut } = useMe()
+  const location = useLocation()
+  const [moreOpen, setMoreOpen] = useState(false)
+  useEffect(() => setMoreOpen(false), [location.pathname])
+  const onMorePage = MORE_TABS.some((n) => location.pathname.startsWith(n.to))
   return (
     <div className="min-h-screen md:flex">
       <aside className="hidden w-56 shrink-0 flex-col border-r border-slate-200 bg-white px-3 py-5 md:flex md:sticky md:top-0 md:h-screen">
@@ -94,16 +128,43 @@ function Shell({ children }: { children: ReactNode }) {
           </button>
         </header>
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 pb-24 md:px-8 md:pb-8">{children}</main>
-        <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-slate-200 bg-white py-1.5 md:hidden">
-          {NAV.map(({ to, label, icon: Icon }) => (
+        {moreOpen && (
+          <div className="fixed inset-0 z-40 bg-slate-900/30 md:hidden" onClick={() => setMoreOpen(false)}>
+            <div
+              className="absolute inset-x-0 bottom-[3.5rem] rounded-t-2xl border-t border-slate-200 bg-white p-4 pb-3 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="grid grid-cols-2 gap-2">
+                {MORE_TABS.map(({ to, label, icon: Icon }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    className={({ isActive }) =>
+                      cls(
+                        'flex items-center gap-2.5 rounded-xl px-3.5 py-3 text-sm font-medium',
+                        isActive ? 'bg-violet-50 text-violet-700' : 'bg-slate-50 text-slate-700',
+                      )
+                    }
+                  >
+                    <Icon size={18} />
+                    {label}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+        <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-slate-200 bg-white pt-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] md:hidden">
+          {MAIN_TABS.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
               end={to === '/'}
+              onClick={() => setMoreOpen(false)}
               className={({ isActive }) =>
                 cls(
-                  'flex flex-col items-center gap-0.5 rounded-lg px-2 py-1 text-[10px] font-medium',
-                  isActive ? 'text-violet-700' : 'text-slate-500',
+                  'flex flex-col items-center gap-0.5 rounded-lg px-3 py-1 text-[10px] font-medium',
+                  isActive && !moreOpen ? 'text-violet-700' : 'text-slate-500',
                 )
               }
             >
@@ -111,6 +172,16 @@ function Shell({ children }: { children: ReactNode }) {
               {label}
             </NavLink>
           ))}
+          <button
+            onClick={() => setMoreOpen((v) => !v)}
+            className={cls(
+              'flex flex-col items-center gap-0.5 rounded-lg px-3 py-1 text-[10px] font-medium',
+              moreOpen || onMorePage ? 'text-violet-700' : 'text-slate-500',
+            )}
+          >
+            <MoreHorizontal size={19} />
+            More
+          </button>
         </nav>
       </div>
     </div>
@@ -140,10 +211,26 @@ export default function App() {
       .catch(() => setPhase('login'))
   }, [])
 
+  // A session that expires mid-use bounces to sign-in instead of a dead page.
+  useEffect(() => {
+    return onConnectionChange((state) => {
+      if (state.unauthorized) {
+        setMe(null)
+        setPhase('login')
+      }
+    })
+  }, [])
+
   if (phase === 'loading') {
     return <div className="flex min-h-screen items-center justify-center text-3xl">🪺</div>
   }
-  if (phase === 'login' || !me) return <Login onDone={() => void loadMe()} hasUsers={boot.has_users} signupOpen={boot.signup_open} />
+  if (phase === 'login' || !me)
+    return (
+      <>
+        <OfflineBanner />
+        <Login onDone={() => void loadMe()} hasUsers={boot.has_users} signupOpen={boot.signup_open} />
+      </>
+    )
 
   const context: MeContextValue = {
     me,
@@ -157,13 +244,17 @@ export default function App() {
 
   return (
     <MeContext.Provider value={context}>
+      <OfflineBanner />
       <Shell>
         <Routes location={location}>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/plan" element={<Plan />} />
           <Route path="/budget" element={<Budget />} />
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/networth" element={<NetWorth />} />
           <Route path="/reports" element={<Reports />} />
+          <Route path="/review" element={<Review />} />
+          <Route path="/insights" element={<Insights />} />
           <Route path="/trips" element={<Trips />} />
           <Route path="/trips/:id" element={<TripDetail />} />
           <Route path="/lists" element={<Lists />} />

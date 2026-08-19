@@ -11,7 +11,8 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Theme system: light/dark/system + five accent palettes, per device.
 - [x] Budgeting methods: envelopes (zero-based), 50/30/20 with adjustable percentages, pay-yourself-first with a savings goal, and plain spending tracking — all over the same engine, with need/want/save tags per category.
 - [ ] Leave/unlink a household (reverse of merging) — needs a data-custody design first.
-- [ ] Password reset via email (depends on the SMTP driver in Phase 2).
+- [x] Change password in-app (revokes other sessions), profile edits, session list + sign-out-everywhere.
+- [ ] Password *reset* via email for a forgotten password (depends on the SMTP driver in Phase 2).
 
 ## ✅ Phase 0 — Foundation (this branch)
 
@@ -24,6 +25,16 @@ Phased so every stage ships something you two actually use, and the spine (house
 - Lists: to-dos, chores, groceries, wishlist (price + link), assignees, due dates.
 - iCal calendar feed (trips, stops, due items) for Google Calendar subscription.
 - Dashboard summary; demo seed data.
+
+## Phase 1c — The Plan page ✅
+
+- [x] Modeling sandbox: gross incomes, 401(k) slider, per-paycheck deductions with §125/HSA/pre-tax/post-tax treatments.
+- [x] Computed taxes: 2026 federal brackets (MFJ + two-single-filers toggle), FICA with wage-base cap, flat state rate, adjustable federal deduction.
+- [x] Take-home pool with proportionally-rebalancing bucket sliders (living / savings / investments / trip / personal) and a trip-goal ETA.
+- [x] Money sankey (incomes → deductions/taxes → pool → buckets) with hover detail.
+- [x] Planned categories with funds-by-income vs benefit-split sliders; fairness check (puts in vs gets out); equal-vs-proportional allowances.
+- [x] Named scenarios with autosave; one-click pull from tracked incomes & 3-month category averages.
+- [x] Plan vs. actual per month: pace marker, run rate, "✓ paid" for matched fixed bills, red only when actually over.
 
 ## Phase 1 — Make the money real
 
@@ -42,8 +53,10 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Instance admin: first account owns the server; invite-only signup with an admin toggle for open registration.
 - [ ] SimpleFIN Bridge sync: accounts, balances, transactions on a schedule.
 - [ ] Auto-rules that split across categories, not just one.
-- [ ] Reconciliation: tick imported transactions against the statement balance.
-- [ ] Settings encryption for stored credentials; rate limiting; cookie `Secure` when behind HTTPS.
+- [x] Reconciliation: cleared/pending flags per transaction, account-scoped tick-off view, imports arrive cleared.
+- [x] Login rate limiting (10 misses / 15 min per account, bounded memory).
+- [x] Offline resilience (reconnect banner + auto-refetch), session-expiry redirect, sliding session renewal, `Secure` cookies behind HTTPS, immutable asset caching, Docker healthcheck.
+- [ ] Settings encryption for stored credentials; cookie `Secure` when behind HTTPS.
 
 ## Phase 1b — Budget depth ✅
 
@@ -56,7 +69,7 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Category drilldown: six-month history, this month's transactions, quick-set, settings.
 - [x] Trends: budgeted vs spent over six months, spending by group, biggest movers.
 - [x] Per-month income overrides for bonus and slow months.
-- [ ] Month-in-review summary you can page back through.
+- [x] Month-in-review summary you can page back through (kept/savings rate, who spent what, wins, overspends, rollovers, biggest purchases).
 - [ ] Drag-to-reorder categories and groups (buttons/APIs exist; drag UI pending).
 - [ ] Credit-card float handling for people who pay the statement, not the purchase.
 
@@ -86,8 +99,10 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] PWA manifest (installable on phones); offline grocery list still to come.
 - [x] Automated test suite around the money math and API (splits, contributions, balances, recurring, imports).
 - [ ] Attachments/receipts on transactions and trip expenses.
-- [ ] Reports: category trends, spending by person, trip cost retrospectives.
-- [ ] Data export (full JSON/CSV dump) and scheduled SQLite backups.
+- [x] Insights page: spending heatmap, cumulative burn vs budget, weekday pattern, income→spending flow, category treemap, top stores, per-envelope sparklines, habit stats — with tooltips, table twins, validated palette, dark mode.
+- [ ] Reports: trip cost retrospectives.
+- [x] Data export: full JSON dump, transactions CSV, one-click SQLite backup (admin).
+- [x] Automatic daily backups: dated copies in `data/backups/`, newest 14 kept.
 
 ## Non-goals (on purpose)
 

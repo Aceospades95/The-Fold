@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type {
   ApiTokenInfo,
   BudgetMethod,
@@ -11,12 +11,160 @@ import type {
   SplitRule,
 } from '@fold/shared'
 import { CADENCES, METHOD_LABELS, monthlyCents } from '@fold/shared'
-import { Check, Copy, Link2, Moon, Monitor, Pencil, Plus, RefreshCw, ShieldCheck, Sun, Trash2, UserPlus } from 'lucide-react'
+import { Check, Copy, Download, KeyRound, Link2, Moon, Monitor, Pencil, Plus, RefreshCw, ShieldCheck, Sun, Trash2, UserPlus } from 'lucide-react'
 import { api, useApi } from '../api'
 import { useMe } from '../App'
 import { fmtMoney } from '../format'
 import { ACCENTS, applyTheme, loadTheme, type ThemeMode, type ThemePref } from '../theme'
 import { Avatar, Button, Card, CardTitle, Chip, ErrorNote, Field, Modal, MoneyInput, Select, TextInput, cls } from '../ui'
+
+function AccountCard() {
+  const { me, reloadMe } = useMe()
+  const sessions = useApi<{ sessions: { created_at: string; expires_at: string; current: boolean }[] }>('/auth/sessions')
+  const [name, setName] = useState(me.user.name)
+  const [email, setEmail] = useState(me.user.email)
+  const [profileNote, setProfileNote] = useState<string | null>(null)
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [passwordNote, setPasswordNote] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  async function saveProfile(): Promise<void> {
+    setError(null)
+    try {
+      await api.patch('/auth/profile', { name: name.trim(), email: email.trim() })
+      await reloadMe()
+      setProfileNote('Saved.')
+      setTimeout(() => setProfileNote(null), 2000)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  async function changePassword(): Promise<void> {
+    setError(null)
+    if (next !== confirm) {
+      setError('New passwords don’t match.')
+      return
+    }
+    try {
+      await api.post('/auth/change-password', { current_password: current, new_password: next })
+      setCurrent('')
+      setNext('')
+      setConfirm('')
+      sessions.reload()
+      setPasswordNote('Password changed — every other device was signed out.')
+      setTimeout(() => setPasswordNote(null), 5000)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  async function signOutOthers(): Promise<void> {
+    const result = await api.post<{ signed_out: number }>('/auth/logout-others')
+    sessions.reload()
+    setPasswordNote(
+      result.signed_out === 0 ? 'No other devices were signed in.' : `Signed out ${result.signed_out} other ${result.signed_out === 1 ? 'device' : 'devices'}.`,
+    )
+    setTimeout(() => setPasswordNote(null), 4000)
+  }
+
+  const activeSessions = sessions.data?.sessions ?? []
+  const otherCount = activeSessions.filter((s) => !s.current).length
+
+  return (
+    <Card>
+      <CardTitle>Your account</CardTitle>
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Name">
+          <TextInput value={name} onChange={(e) => setName(e.target.value)} className="w-44" />
+        </Field>
+        <Field label="Email">
+          <TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-60" />
+        </Field>
+        <Button variant="secondary" onClick={() => void saveProfile()} disabled={!name.trim() || !email.trim()}>
+          {profileNote ? <Check size={14} /> : null} Save
+        </Button>
+      </div>
+
+      <div className="mt-5 border-t border-slate-100 pt-4">
+        <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-700">
+          <KeyRound size={14} /> Change password
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Current password">
+            <TextInput type="password" value={current} onChange={(e) => setCurrent(e.target.value)} className="w-44" autoComplete="current-password" />
+          </Field>
+          <Field label="New password" hint="At least 6 characters.">
+            <TextInput type="password" value={next} onChange={(e) => setNext(e.target.value)} minLength={6} className="w-44" autoComplete="new-password" />
+          </Field>
+          <Field label="Repeat it">
+            <TextInput type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} className="w-44" autoComplete="new-password" />
+          </Field>
+          <Button variant="secondary" onClick={() => void changePassword()} disabled={!current || next.length < 6}>
+            Change
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4">
+        <p className="text-sm text-slate-600">
+          <strong>{activeSessions.length}</strong> signed-in {activeSessions.length === 1 ? 'device' : 'devices'}
+          {otherCount > 0 && <span className="text-slate-400"> · {otherCount} besides this one</span>}
+        </p>
+        {otherCount > 0 && (
+          <Button variant="secondary" onClick={() => void signOutOthers()}>
+            Sign out everywhere else
+          </Button>
+        )}
+      </div>
+      {passwordNote && <p className="mt-2 text-sm font-medium text-emerald-600">{passwordNote}</p>}
+      <ErrorNote message={error} />
+    </Card>
+  )
+}
+
+function DataCard() {
+  const { me } = useMe()
+  const rows: { href: string; title: string; blurb: string; adminOnly?: boolean }[] = [
+    {
+      href: '/api/export/full.json',
+      title: 'Everything as JSON',
+      blurb: 'Budgets, spending, trips, lists — the full household, machine-readable.',
+    },
+    {
+      href: '/api/export/transactions.csv',
+      title: 'Transactions as CSV',
+      blurb: 'Every expense with categories, splits, and accounts — opens in any spreadsheet.',
+    },
+    {
+      href: '/api/export/backup.sqlite',
+      title: 'Database backup',
+      blurb: 'A consistent copy of the SQLite file. Restoring = dropping it back into ./data.',
+      adminOnly: true,
+    },
+  ]
+  return (
+    <Card>
+      <CardTitle>Your data</CardTitle>
+      <p className="mb-3 text-sm text-slate-500">It’s yours — take it whenever you like.</p>
+      <div className="divide-y divide-slate-100">
+        {rows
+          .filter((row) => !row.adminOnly || me.user.is_admin === 1)
+          .map((row) => (
+            <a key={row.href} href={row.href} download className="group flex items-center gap-3 py-2.5">
+              <Download size={16} className="shrink-0 text-slate-400 group-hover:text-violet-600" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium group-hover:text-violet-700">{row.title}</span>
+                <span className="block text-xs text-slate-500">{row.blurb}</span>
+              </span>
+            </a>
+          ))}
+      </div>
+    </Card>
+  )
+}
 
 const DEDUCTION_KINDS: { value: PayDeduction['kind']; label: string }[] = [
   { value: 'tax', label: 'Taxes' },
@@ -713,6 +861,13 @@ export default function Settings() {
   const calendarUrl = `${window.location.origin}${me.household.calendar_path}`
   const customTotal = Object.values(customSplit).reduce((sum, v) => sum + v, 0)
 
+  useEffect(() => {
+    const anchor = window.location.hash.slice(1)
+    if (!anchor) return
+    const t = setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth' }), 120)
+    return () => clearTimeout(t)
+  }, [])
+
   async function saveHousehold(): Promise<void> {
     await api.patch('/household', {
       name: householdName,
@@ -751,8 +906,10 @@ export default function Settings() {
         <p className="text-sm text-slate-500">Your household, your money rules, your integrations.</p>
       </div>
 
+      <AccountCard />
       <AppearanceCard />
       <ServerCard />
+      <div id="partner" className="scroll-mt-4" />
       <PartnerCard />
 
       <Card>
@@ -780,6 +937,7 @@ export default function Settings() {
         </div>
       </Card>
 
+      <div id="income" className="scroll-mt-4" />
       <Card>
         <CardTitle
           action={
@@ -942,6 +1100,7 @@ export default function Settings() {
 
       <HomeAssistantCard />
       <ApiTokensCard />
+      <DataCard />
 
       <Card>
         <CardTitle>Integrations</CardTitle>

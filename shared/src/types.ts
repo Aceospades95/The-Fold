@@ -277,6 +277,8 @@ export interface Tx {
   trip_expense_id: string | null
   recurring_id: string | null
   notes: string | null
+  /** 1 once the bank shows it (imports arrive cleared; manual entries start pending). */
+  cleared: 0 | 1
   splits: Split[]
   lines: TxLine[]
 }
@@ -531,6 +533,95 @@ export interface ListRow {
   items: ListItemRow[]
 }
 
+export interface InsightsResponse {
+  months: number
+  from: string
+  to: string
+  /** One entry per day with activity: expenses net of refunds. */
+  daily: { date: string; total_cents: number; count: number }[]
+  habits: {
+    no_spend_days_30: number
+    longest_no_spend_streak_30: number
+    /** 0 = Sunday … 6 = Saturday. */
+    busiest_weekday: number
+    weekend_share_pct: number
+    autopilot_share_pct: number
+    avg_purchase_cents: number
+    tx_per_week: number
+  }
+  burn: {
+    days_in_month: number
+    today_day: number
+    /** Cumulative spend by day of month, index 0 = day 1. */
+    this_month: number[]
+    last_month: number[]
+    budget_cents: number
+  }
+  /** Average spend per occurrence of each weekday, Sun..Sat. */
+  weekday_avg: number[]
+  /** This month's money flow: each member's income into shared / their personal / kept. */
+  flow: {
+    month: string
+    members: {
+      user_id: string
+      name: string
+      color: string
+      income_cents: number
+      shared_cents: number
+      personal_cents: number
+      kept_cents: number
+    }[]
+    shared_total_cents: number
+  }
+  /** Category totals over the window, tagged with their group for the treemap. */
+  treemap: { category_id: string; name: string; emoji: string | null; group: string; total_cents: number }[]
+  merchants: { id: string; name: string; domain: string | null; total_cents: number; visits: number }[]
+  /** Per-category monthly spend over the window, oldest first. */
+  sparklines: { category_id: string; name: string; emoji: string | null; scope: CategoryScope; months: number[] }[]
+}
+
+export interface ReviewHighlight {
+  category_id: string
+  name: string
+  emoji: string | null
+  amount_cents: number
+}
+
+export interface ReviewResponse {
+  month: string
+  has_prev: boolean
+  has_next: boolean
+  income_cents: number
+  spent_cents: number
+  kept_cents: number
+  /** Percent of income kept; null when no income is set up. */
+  savings_rate: number | null
+  shared_spent_cents: number
+  transactions_count: number
+  uncategorized_count: number
+  vs_prev: { spent_delta_cents: number; income_delta_cents: number } | null
+  members: { user_id: string; name: string; color: string; share_cents: number; personal_spent_cents: number }[]
+  /** Envelopes that ended the month in the red (amount = how far over). */
+  overspent: ReviewHighlight[]
+  /** Non-rollover envelopes that came in under budget (amount = left unspent). */
+  wins: ReviewHighlight[]
+  /** Rollover envelopes carrying a positive balance forward (amount = what rolls). */
+  rolled_forward: ReviewHighlight[]
+  top_categories: { category_id: string; name: string; emoji: string | null; spent_cents: number; allocated_cents: number }[]
+  biggest_purchases: {
+    id: string
+    date: string
+    description: string
+    amount_cents: number
+    merchant_name: string | null
+    payer_user_id: string
+  }[]
+  /** The running who-owes-whom as of now (not month-scoped). */
+  balance: BalancesResponse['suggestion']
+  /** Net-worth change this month — only when reviewing the current month. */
+  net_worth_delta_cents: number | null
+}
+
 export interface SummaryResponse {
   month: string
   shared_allocated_cents: number
@@ -542,4 +633,5 @@ export interface SummaryResponse {
   my_tasks: { id: string; list_id: string; list_name: string; text: string; due_date: string | null }[]
   recent_transactions: Tx[]
   net_worth: { net_cents: number; delta_month_cents: number | null; account_count: number } | null
+  setup: { has_income: boolean; has_budget: boolean; has_transaction: boolean; partner_linked: boolean }
 }

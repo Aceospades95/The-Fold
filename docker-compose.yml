@@ -8,4 +8,7 @@ services:
       - '8484:8484'
     volumes:
       - ./data:/data
+    environment:
+      # Set to your local timezone so recurring bills and "today" line up with your day.
+      - TZ=America/Denver
     restart: unless-stopped

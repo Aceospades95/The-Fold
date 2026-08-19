@@ -33,8 +33,10 @@ export function fmtRange(start: string | null, end: string | null): string {
   return `${fmtDate(start)} – ${fmtDate(end)}`
 }
 
+/** Today in the user's local timezone (an evening entry must not land on tomorrow's UTC date). */
 export function todayStr(): string {
-  return new Date().toISOString().slice(0, 10)
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 export function currentMonth(): string {

@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { TrendsResponse } from '@fold/shared'
-import { TrendingDown, TrendingUp } from 'lucide-react'
+import { CalendarCheck, TrendingDown, TrendingUp } from 'lucide-react'
 import { useApi } from '../api'
 import { useMe } from '../App'
 import { fmtMoney, fmtMonthShort } from '../format'
@@ -74,16 +75,24 @@ export default function Reports() {
           <h1 className="text-2xl font-bold">Reports</h1>
           <p className="text-sm text-slate-500">Cash flow, where it went, and who spent it.</p>
         </div>
-        <div className="flex rounded-xl bg-slate-100 p-1 text-sm font-medium">
-          {([6, 12] as const).map((value) => (
-            <button
-              key={value}
-              onClick={() => setRange(value)}
-              className={cls('rounded-lg px-3 py-1.5', range === value ? 'bg-white shadow-sm' : 'text-slate-500')}
-            >
-              {value} months
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            to="/review"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-slate-300"
+          >
+            <CalendarCheck size={15} /> Month in review
+          </Link>
+          <div className="flex rounded-xl bg-slate-100 p-1 text-sm font-medium">
+            {([6, 12] as const).map((value) => (
+              <button
+                key={value}
+                onClick={() => setRange(value)}
+                className={cls('rounded-lg px-3 py-1.5', range === value ? 'bg-white shadow-sm' : 'text-slate-500')}
+              >
+                {value} months
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

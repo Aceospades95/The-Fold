@@ -94,6 +94,16 @@ export async function summaryRoutes(app: FastifyInstance): Promise<void> {
 
     const netWorth = computeNetWorth(app.db, householdId)
 
+    const memberCount = (
+      app.db.prepare('SELECT COUNT(*) AS n FROM users WHERE household_id = ?').get(householdId) as { n: number }
+    ).n
+    const hasIncome =
+      app.db
+        .prepare('SELECT 1 FROM income_sources s JOIN users u ON u.id = s.user_id WHERE u.household_id = ? LIMIT 1')
+        .get(householdId) != null
+    const hasTransaction =
+      app.db.prepare('SELECT 1 FROM transactions WHERE household_id = ? LIMIT 1').get(householdId) != null
+
     return {
       month,
       shared_allocated_cents: sharedAlloc,
@@ -112,6 +122,12 @@ export async function summaryRoutes(app: FastifyInstance): Promise<void> {
               account_count: netWorth.accounts.length,
             }
           : null,
+      setup: {
+        has_income: hasIncome,
+        has_budget: sharedAlloc + alloc.filter((a) => a.scope === 'personal').reduce((sum, a) => sum + a.total, 0) > 0,
+        has_transaction: hasTransaction,
+        partner_linked: memberCount > 1,
+      },
     }
   })
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { BalancesResponse, Category, DuplicatePair, ImportRule, Merchant, NetWorthResponse, Tx } from '@fold/shared'
-import { ArrowLeftRight, ChevronLeft, ChevronRight, Copy, Plus, Repeat, Search, Split as SplitIcon, Store, Tag, Upload, X } from 'lucide-react'
+import { ArrowLeftRight, CheckCircle2, ChevronLeft, ChevronRight, Copy, Plus, Repeat, Search, Split as SplitIcon, Store, Tag, Upload, X } from 'lucide-react'
 import { api, useApi } from '../api'
 import { useMe } from '../App'
 import { currentMonth, fmtDate, fmtDateFull, fmtMoney, fmtMonth, shiftMonth, todayStr } from '../format'
@@ -210,6 +210,10 @@ export default function Transactions() {
   const duplicatesQuery = useApi<{ pairs: DuplicatePair[] }>('/transactions/duplicates')
   const rulesQuery = useApi<{ rules: ImportRule[] }>('/import-rules')
   const uncategorizedQuery = useApi<{ transactions: Tx[] }>(needsCategory ? '/transactions?uncategorized=1' : null)
+  // Reconcile mode rides along with the account filter: pending entries for that account, any month.
+  const unclearedQuery = useApi<{ transactions: Tx[] }>(
+    filterAccount ? `/transactions?uncleared=1&account=${filterAccount}` : null,
+  )
   const [editing, setEditing] = useState<Tx | null>(null)
   const [adding, setAdding] = useState(false)
   const [settling, setSettling] = useState(false)
@@ -241,6 +245,13 @@ export default function Transactions() {
     balances.reload()
     duplicatesQuery.reload()
     if (needsCategory) uncategorizedQuery.reload()
+    if (filterAccount) unclearedQuery.reload()
+  }
+
+  async function setCleared(ids: string[], cleared: boolean): Promise<void> {
+    await api.post('/transactions/set-cleared', { ids, cleared })
+    transactions.reload()
+    unclearedQuery.reload()
   }
 
   function categoryLabel(tx: Tx): string {
@@ -392,6 +403,26 @@ export default function Transactions() {
         )}
       </Card>
 
+      {filterAccount && (unclearedQuery.data?.transactions.length ?? 0) > 0 && (
+        <Card className="flex flex-wrap items-center justify-between gap-2 bg-sky-50/70 !py-3">
+          <p className="flex items-center gap-2 text-sm text-sky-900">
+            <CheckCircle2 size={15} />
+            <span>
+              <strong>{unclearedQuery.data!.transactions.length}</strong>{' '}
+              {unclearedQuery.data!.transactions.length === 1 ? 'entry hasn’t' : 'entries haven’t'} cleared the bank
+              yet ({fmtMoney(unclearedQuery.data!.transactions.reduce((sum, t) => sum + t.amount_cents, 0))}). Tick
+              them as your statement confirms them.
+            </span>
+          </p>
+          <button
+            onClick={() => void setCleared(unclearedQuery.data!.transactions.map((t) => t.id), true)}
+            className="shrink-0 text-xs font-medium text-sky-800 underline"
+          >
+            Mark all cleared
+          </button>
+        </Card>
+      )}
+
       <Card className="flex items-center justify-between !py-3">
         {suggestion && creditor && debtor ? (
           <p className="text-sm">
@@ -498,6 +529,30 @@ export default function Transactions() {
                       >
                         {tx.amount_cents < 0 ? `+${fmtMoney(-tx.amount_cents)}` : fmtMoney(tx.amount_cents)}
                       </span>
+                      {filterAccount && !isSettlement && (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          title={tx.cleared ? 'Cleared — on the bank statement' : 'Pending — tap when the bank shows it'}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void setCleared([tx.id], !tx.cleared)
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              void setCleared([tx.id], !tx.cleared)
+                            }
+                          }}
+                          className={cls(
+                            'shrink-0 rounded-full p-0.5',
+                            tx.cleared ? 'text-emerald-500 hover:text-emerald-600' : 'text-slate-300 hover:text-slate-400',
+                          )}
+                        >
+                          <CheckCircle2 size={17} />
+                        </span>
+                      )}
                     </button>
                   )
                 })}

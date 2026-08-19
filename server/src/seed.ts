@@ -9,7 +9,7 @@ import { dirname, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { hashPassword } from './auth.js'
 import { openDb } from './db.js'
-import { id, now, shiftMonth } from './lib/util.js'
+import { currentMonth, id, now, shiftMonth } from './lib/util.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const dbPath = process.env.FOLD_DB ?? resolve(here, '../../data/the-fold.db')
@@ -28,7 +28,7 @@ if (existing > 0) {
   process.exit(0)
 }
 
-const thisMonth = new Date().toISOString().slice(0, 7)
+const thisMonth = currentMonth()
 const months = [3, 2, 1, 0].map((back) => shiftMonth(thisMonth, -back))
 const [m3, m2, m1, m0] = months
 const day = (month: string, d: number) => `${month}-${String(d).padStart(2, '0')}`
@@ -460,13 +460,15 @@ const insertRecurring = db.prepare(
    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
 )
 const nextMonth = shiftMonth(thisMonth, 1)
+const rentRecurringId = id()
+const internetRecurringId = id()
 insertRecurring.run(
-  id(), hhId, 'Rent', 210000, cat['Rent / Mortgage'], jake,
+  rentRecurringId, hhId, 'Rent', 210000, cat['Rent / Mortgage'], jake,
   JSON.stringify(byIncome(210000).map(([user_id, share_cents]) => ({ user_id, share_cents }))),
   'monthly', 1, day(nextMonth, 1), 'Auto-posts on the 1st', now(),
 )
 insertRecurring.run(
-  id(), hhId, 'Internet', 8000, cat['Internet & phone'], jake,
+  internetRecurringId, hhId, 'Internet', 8000, cat['Internet & phone'], jake,
   JSON.stringify([{ user_id: jake, share_cents: 4000 }, { user_id: sam, share_cents: 4000 }]),
   'monthly', 8, day(nextMonth, 8), null, now(),
 )
@@ -499,14 +501,24 @@ linkMerchant.run(merchants['Target'], hhId, '%TARGET%')
 linkMerchant.run(merchants['Amazon'], hhId, '%AMZN%')
 linkMerchant.run(merchants['Blue Bottle Coffee'], hhId, '%BLUE BOTTLE%')
 
+// The rent and internet history came from the recurring templates (so the
+// autopilot share on Insights reflects reality).
+db.prepare(`UPDATE transactions SET recurring_id = ? WHERE household_id = ? AND description = 'Rent'`).run(rentRecurringId, hhId)
+db.prepare(`UPDATE transactions SET recurring_id = ? WHERE household_id = ? AND description = 'Internet'`).run(internetRecurringId, hhId)
+
 // The three unclassified transactions arrived via a Visa statement import.
 const batchId = id()
 db.prepare(
   'INSERT INTO import_batches (id, household_id, account_id, filename, created_at, imported_count, total_cents) VALUES (?, ?, ?, ?, ?, 3, 17526)',
 ).run(batchId, hhId, visaId, 'visa-statement.csv', now())
 db.prepare(
-  `UPDATE transactions SET account_id = ?, import_batch_id = ? WHERE household_id = ? AND description IN ('AMZN MKTP US*2A45BX9', 'SQ *BLUE BOTTLE COFFEE', 'POS DEBIT 4412 TARGET')`,
+  `UPDATE transactions SET account_id = ?, import_batch_id = ?, cleared = 1 WHERE household_id = ? AND description IN ('AMZN MKTP US*2A45BX9', 'SQ *BLUE BOTTLE COFFEE', 'POS DEBIT 4412 TARGET')`,
 ).run(visaId, batchId, hhId)
+
+// A couple of card purchases entered by hand that the statement hasn't confirmed yet.
+db.prepare(
+  `UPDATE transactions SET account_id = ? WHERE household_id = ? AND description IN ('Concert tickets', 'Takeout — Thai') AND date >= ?`,
+).run(visaId, hhId, `${thisMonth}-01`)
 
 console.log('Seeded demo household with four months of budget history:')
 console.log('  jake@example.com / thefold')

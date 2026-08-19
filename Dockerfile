@@ -28,4 +28,6 @@ COPY server ./server
 COPY --from=build /app/web/dist ./web/dist
 VOLUME /data
 EXPOSE 8484
+HEALTHCHECK --interval=60s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:8484/api/health || exit 1
 CMD ["npm", "run", "start", "-w", "server"]

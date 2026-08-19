@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { buildApp } from './app.js'
 import { openDb } from './db.js'
+import { runDailyBackup } from './lib/backup.js'
 import { runDailyJobs } from './lib/webhooks.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -21,13 +22,16 @@ try {
   process.exit(1)
 }
 
-// Post due recurring transactions and fire scheduled webhooks: once at boot
-// (catch-up after downtime), then hourly — runDailyJobs itself no-ops until
-// the calendar date changes.
-runDailyJobs(db).catch((err) => app.log.error(err, 'daily jobs failed'))
-setInterval(
-  () => {
-    runDailyJobs(db).catch((err) => app.log.error(err, 'daily jobs failed'))
-  },
-  60 * 60 * 1000,
-).unref()
+// Post due recurring transactions, fire scheduled webhooks, and write the
+// daily backup: once at boot (catch-up after downtime), then hourly —
+// runDailyJobs itself no-ops until the calendar date changes.
+function daily(): void {
+  runDailyJobs(db).catch((err) => app.log.error(err, 'daily jobs failed'))
+  try {
+    runDailyBackup(db, dbPath)
+  } catch (err) {
+    app.log.error(err, 'daily backup failed')
+  }
+}
+daily()
+setInterval(daily, 60 * 60 * 1000).unref()

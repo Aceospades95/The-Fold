@@ -7,6 +7,8 @@ import { Card, CardTitle, cls } from '../../ui'
 export default function TrendsCard() {
   const { data } = useApi<TrendsResponse>('/budget-trends?months=6')
   if (!data || data.months.length === 0) return null
+  // A brand-new budget has nothing to chart yet — stay out of the way instead of drawing zeros.
+  if (data.months.every((m) => m.allocated_cents === 0 && m.spent_cents === 0)) return null
 
   const max = Math.max(1, ...data.months.map((m) => Math.max(m.allocated_cents, m.spent_cents)))
   const topGroups = [...data.by_group].sort((a, b) => b.spent_cents - a.spent_cents).slice(0, 5)

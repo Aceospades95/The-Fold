@@ -29,7 +29,7 @@ export function AllocationInput({
 
   return (
     <div className="relative">
-      <span className="pointer-events-none absolute inset-y-0 left-2 flex items-center text-xs text-slate-400">$</span>
+      <span className="pointer-events-none absolute inset-y-0 left-1.5 flex items-center text-xs text-slate-400 sm:left-2">$</span>
       <input
         ref={ref}
         value={text}
@@ -51,7 +51,7 @@ export function AllocationInput({
             e.currentTarget.blur()
           }
         }}
-        className={cls(inputCls, 'py-1.5 pl-5 pr-2 text-right text-sm tabular-nums')}
+        className={cls(inputCls, 'py-1.5 pl-4 pr-1.5 text-right text-sm tabular-nums sm:pl-5 sm:pr-2')}
       />
     </div>
   )
@@ -65,21 +65,24 @@ export function TargetChip({ row }: { row: BudgetCategoryRow }) {
     row.target_type === 'monthly'
       ? `${fmtMoney(row.target_cents, { whole: true })}/mo`
       : `${fmtMoney(row.target_cents, { whole: true })} by ${row.target_date?.slice(0, 7).replace(/^\d{4}-/, '') ?? ''}`
+  const title = met ? 'On track this month' : `Budget ${fmtMoney(suggestion)} this month to stay on track`
   return (
-    <span
-      title={
-        met
-          ? 'On track this month'
-          : `Budget ${fmtMoney(suggestion)} this month to stay on track`
-      }
-      className={cls(
-        'inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium',
-        met ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700',
-      )}
-    >
-      <Target size={9} />
-      {label}
-    </span>
+    <>
+      {/* Phones get just the colored target icon — the full chip doesn't fit next to the name. */}
+      <span title={title} className={cls('shrink-0 sm:hidden', met ? 'text-emerald-500' : 'text-amber-500')}>
+        <Target size={11} />
+      </span>
+      <span
+        title={title}
+        className={cls(
+          'hidden shrink-0 items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium sm:inline-flex',
+          met ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700',
+        )}
+      >
+        <Target size={9} />
+        {label}
+      </span>
+    </>
   )
 }
 
@@ -88,7 +91,7 @@ export function AvailablePill({ row }: { row: BudgetCategoryRow }) {
   return (
     <span
       className={cls(
-        'inline-block rounded-lg px-2 py-1 text-sm font-semibold tabular-nums',
+        'inline-block rounded-lg px-1.5 py-1 text-sm font-semibold tabular-nums sm:px-2',
         value < 0
           ? 'bg-red-50 text-red-600'
           : value === 0
@@ -120,7 +123,7 @@ export function CategoryRow({
   const barColor = overspent ? '#ef4444' : pct > 85 ? '#f59e0b' : accent
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_6.5rem_6.5rem] items-center gap-x-3 gap-y-1 py-2 sm:grid-cols-[minmax(0,1fr)_7rem_6rem_7rem]">
+    <div className="grid grid-cols-[minmax(0,1fr)_5.5rem_5rem] items-center gap-x-1.5 gap-y-1 py-2 sm:grid-cols-[minmax(0,1fr)_7rem_6rem_7rem] sm:gap-x-3">
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
           <span className="shrink-0 text-base">{row.emoji ?? '🏷️'}</span>
@@ -182,7 +185,7 @@ export function GroupSection({
     <div className="border-t border-slate-100 first:border-t-0">
       <button
         onClick={onToggle}
-        className="grid w-full grid-cols-[minmax(0,1fr)_6.5rem_6.5rem] items-center gap-x-3 py-2 text-left hover:bg-slate-50 sm:grid-cols-[minmax(0,1fr)_7rem_6rem_7rem]"
+        className="grid w-full grid-cols-[minmax(0,1fr)_5.5rem_5rem] items-center gap-x-1.5 py-2 text-left hover:bg-slate-50 sm:grid-cols-[minmax(0,1fr)_7rem_6rem_7rem] sm:gap-x-3"
       >
         <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
           {collapsed ? <ChevronRight size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
@@ -204,14 +207,14 @@ export function GroupSection({
           {fmtMoney(group.available_cents)}
         </span>
       </button>
-      {!collapsed && <div className="pb-1 pl-4 sm:pl-5">{children}</div>}
+      {!collapsed && <div className="pb-1 pl-1.5 sm:pl-5">{children}</div>}
     </div>
   )
 }
 
 export function TableHeader() {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_6.5rem_6.5rem] gap-x-3 border-b border-slate-200 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400 sm:grid-cols-[minmax(0,1fr)_7rem_6rem_7rem]">
+    <div className="grid grid-cols-[minmax(0,1fr)_5.5rem_5rem] gap-x-1.5 border-b border-slate-200 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400 sm:grid-cols-[minmax(0,1fr)_7rem_6rem_7rem] sm:gap-x-3">
       <span>Category</span>
       <span className="text-right">Budgeted</span>
       <span className="hidden text-right sm:block">Spent</span>

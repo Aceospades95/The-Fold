@@ -7,7 +7,9 @@ import {
   createSession,
   destroySession,
   hashPassword,
+  hashToken,
   requireAuth,
+  setSessionCookie,
   userForToken,
   verifyPassword,
 } from '../auth.js'
@@ -131,15 +133,6 @@ export function nextMemberColor(db: DatabaseSync, householdId: string): string {
   return MEMBER_COLORS.find((color) => !used.includes(color)) ?? MEMBER_COLORS[used.length % MEMBER_COLORS.length]
 }
 
-export function setCookie(reply: { setCookie: Function }, token: string, maxAgeSeconds: number): void {
-  reply.setCookie(SESSION_COOKIE, token, {
-    path: '/',
-    httpOnly: true,
-    sameSite: 'lax',
-    maxAge: maxAgeSeconds,
-  })
-}
-
 export function openSignupEnabled(app: FastifyInstance): boolean {
   const row = app.db.prepare(`SELECT value FROM instance_settings WHERE key = 'open_signup'`).get() as
     | { value: string }
@@ -206,27 +199,87 @@ export async function publicAuthRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const session = createSession(app.db, userId)
-    setCookie(reply, session.token, session.maxAgeSeconds)
+    setSessionCookie(req, reply, session.token, session.maxAgeSeconds)
     const user = app.db.prepare('SELECT id, name, email, color, is_admin FROM users WHERE id = ?').get(userId)
     return { user }
   })
 
   app.post('/auth/login', async (req, reply) => {
     const body = loginBody.parse(req.body)
+    if (tooManyAttempts(body.email)) {
+      reply.code(429)
+      return { error: 'Too many attempts — wait 15 minutes and try again.' }
+    }
     const row = app.db
       .prepare('SELECT id, name, email, color, is_admin, password_hash FROM users WHERE email = ?')
       .get(body.email) as
       | { id: string; name: string; email: string; color: string; is_admin: 0 | 1; password_hash: string }
       | undefined
     if (!row || !verifyPassword(body.password, row.password_hash)) {
+      recordFailedAttempt(body.email)
       reply.code(401)
       return { error: 'Wrong email or password' }
     }
+    clearAttempts(body.email)
     const session = createSession(app.db, row.id)
-    setCookie(reply, session.token, session.maxAgeSeconds)
+    setSessionCookie(req, reply, session.token, session.maxAgeSeconds)
     return { user: { id: row.id, name: row.name, email: row.email, color: row.color, is_admin: row.is_admin } }
   })
 }
+
+// Per-account brute-force brake: 10 misses in 15 minutes locks the door for a
+// bit. Kept in memory on purpose — a restart clears it, which is fine for the
+// household-server threat model (this is a speed bump, not a bank vault).
+const ATTEMPT_LIMIT = 10
+const ATTEMPT_WINDOW_MS = 15 * 60 * 1000
+const failedLogins = new Map<string, { count: number; first: number }>()
+
+function attemptsFor(email: string): { count: number; first: number } | undefined {
+  const entry = failedLogins.get(email)
+  if (entry && Date.now() - entry.first > ATTEMPT_WINDOW_MS) {
+    failedLogins.delete(email)
+    return undefined
+  }
+  return entry
+}
+
+function tooManyAttempts(email: string): boolean {
+  return (attemptsFor(email)?.count ?? 0) >= ATTEMPT_LIMIT
+}
+
+function recordFailedAttempt(email: string): void {
+  const entry = attemptsFor(email)
+  if (entry) {
+    entry.count += 1
+    return
+  }
+  // Keep the map bounded even under a spray of made-up emails.
+  if (failedLogins.size >= 300) {
+    for (const [key, value] of failedLogins) {
+      if (Date.now() - value.first > ATTEMPT_WINDOW_MS) failedLogins.delete(key)
+    }
+    while (failedLogins.size >= 300) {
+      const oldest = failedLogins.keys().next().value
+      if (oldest == null) break
+      failedLogins.delete(oldest)
+    }
+  }
+  failedLogins.set(email, { count: 1, first: Date.now() })
+}
+
+function clearAttempts(email: string): void {
+  failedLogins.delete(email)
+}
+
+const changePasswordBody = z.object({
+  current_password: z.string(),
+  new_password: z.string().min(6).max(200),
+})
+
+const profileBody = z.object({
+  name: z.string().trim().min(1).max(60).optional(),
+  email: z.string().trim().email().toLowerCase().optional(),
+})
 
 export async function privateAuthRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('onRequest', requireAuth)
@@ -236,6 +289,57 @@ export async function privateAuthRoutes(app: FastifyInstance): Promise<void> {
     if (token) destroySession(app.db, token)
     reply.clearCookie(SESSION_COOKIE, { path: '/' })
     return { ok: true }
+  })
+
+  app.post('/auth/change-password', async (req) => {
+    const body = changePasswordBody.parse(req.body)
+    const row = app.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id) as
+      | { password_hash: string }
+      | undefined
+    if (!row || !verifyPassword(body.current_password, row.password_hash)) {
+      badRequest('That current password is not right.')
+    }
+    app.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(body.new_password), req.user.id)
+    // A changed password signs out every other device; this one stays in.
+    const token = req.cookies[SESSION_COOKIE]
+    app.db
+      .prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?')
+      .run(req.user.id, token ? hashToken(token) : '')
+    return { ok: true }
+  })
+
+  app.patch('/auth/profile', async (req) => {
+    const body = profileBody.parse(req.body)
+    if (body.email) {
+      const taken = app.db.prepare('SELECT 1 FROM users WHERE email = ? AND id != ?').get(body.email, req.user.id)
+      if (taken) badRequest('That email is already in use.')
+      app.db.prepare('UPDATE users SET email = ? WHERE id = ?').run(body.email, req.user.id)
+    }
+    if (body.name) {
+      app.db.prepare('UPDATE users SET name = ? WHERE id = ?').run(body.name, req.user.id)
+    }
+    return { ok: true }
+  })
+
+  app.get('/auth/sessions', async (req) => {
+    const token = req.cookies[SESSION_COOKIE]
+    const current = token ? hashToken(token) : ''
+    const rows = app.db
+      .prepare(
+        'SELECT token_hash, created_at, expires_at FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC',
+      )
+      .all(req.user.id, now()) as unknown as { token_hash: string; created_at: string; expires_at: string }[]
+    return {
+      sessions: rows.map((r) => ({ created_at: r.created_at, expires_at: r.expires_at, current: r.token_hash === current })),
+    }
+  })
+
+  app.post('/auth/logout-others', async (req) => {
+    const token = req.cookies[SESSION_COOKIE]
+    const result = app.db
+      .prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?')
+      .run(req.user.id, token ? hashToken(token) : '')
+    return { signed_out: Number(result.changes) }
   })
 }
 

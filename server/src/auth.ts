@@ -25,7 +25,7 @@ export function verifyPassword(password: string, stored: string): boolean {
   return candidate.length === expected.length && timingSafeEqual(candidate, expected)
 }
 
-function hashToken(token: string): string {
+export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex')
 }
 
@@ -57,6 +57,47 @@ export function userForToken(db: DatabaseSync, token: string): SessionUser | nul
   return row ?? null
 }
 
+/**
+ * Sliding expiration: once a session is past the halfway mark, any request
+ * pushes it back out to the full window — the couple stays signed in on
+ * devices they actually use, while abandoned sessions still age out.
+ * Returns true when the cookie should be re-issued too.
+ */
+export function renewSessionIfStale(db: DatabaseSync, token: string): boolean {
+  const row = db
+    .prepare('SELECT expires_at FROM sessions WHERE token_hash = ?')
+    .get(hashToken(token)) as { expires_at: string } | undefined
+  if (!row) return false
+  const remainingMs = Date.parse(row.expires_at) - Date.now()
+  if (remainingMs > (SESSION_DAYS / 2) * 24 * 60 * 60 * 1000) return false
+  const expires = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000).toISOString()
+  db.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?').run(expires, hashToken(token))
+  return true
+}
+
+interface CookieReply {
+  setCookie: (name: string, value: string, opts: Record<string, unknown>) => unknown
+}
+
+export function setSessionCookie(
+  req: { headers: Record<string, string | string[] | undefined>; protocol?: string },
+  reply: CookieReply,
+  token: string,
+  maxAgeSeconds: number = SESSION_DAYS * 24 * 60 * 60,
+): void {
+  const secure =
+    process.env.FOLD_SECURE_COOKIES === '1' ||
+    req.headers['x-forwarded-proto'] === 'https' ||
+    req.protocol === 'https'
+  reply.setCookie(SESSION_COOKIE, token, {
+    path: '/',
+    httpOnly: true,
+    sameSite: 'lax',
+    secure,
+    maxAge: maxAgeSeconds,
+  })
+}
+
 declare module 'fastify' {
   interface FastifyInstance {
     db: DatabaseSync
@@ -72,6 +113,9 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply): Pro
   if (!user) {
     reply.code(401).send({ error: 'Not signed in' })
     return reply
+  }
+  if (token && renewSessionIfStale(req.server.db, token)) {
+    setSessionCookie(req, reply, token)
   }
   req.user = user
 }

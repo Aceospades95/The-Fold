@@ -170,6 +170,9 @@ describe('statement import v2', () => {
   })
 
   it('snapshots the account balance from a statement', async () => {
+    // The statement date must not be older than the account's day-one snapshot,
+    // or the (correctly) newer snapshot wins — anchor it to today.
+    const statementDate = new Date().toISOString().slice(0, 10)
     await app.inject({
       method: 'POST',
       url: '/api/transactions/import',
@@ -178,7 +181,7 @@ describe('statement import v2', () => {
         payer_user_id: jakeId,
         account_id: visaId,
         account_balance_cents: -123456,
-        balance_date: dayIn(10),
+        balance_date: statementDate,
         rows: [
           {
             date: dayIn(10),
@@ -192,7 +195,7 @@ describe('statement import v2', () => {
     const networth = await get('/api/networth')
     const visa = networth.accounts.find((a: { id: string }) => a.id === visaId)
     expect(visa.balance_cents).toBe(123456)
-    expect(visa.balance_date).toBe(dayIn(10))
+    expect(visa.balance_date).toBe(statementDate)
   })
 
   it('remembers per-account import profiles', async () => {

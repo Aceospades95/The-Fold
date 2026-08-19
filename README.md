@@ -11,7 +11,16 @@ The Fold exists because the pieces were scattered: Splitwise for splits, Mint fo
 - **Paycheck breakdown & the gross-vs-net question.** Record gross pay and deductions (taxes, 401k, insurance) per paycheck; The Fold derives take-home. A "Paychecks & how we split" panel on the Budget page shows each person's gross → deductions → net waterfall and what **50/50 vs by-net vs by-gross** would each cost this month — click the one you want and the budget re-splits.
 - **Themes** — light, dark, or follow-system, with five accent palettes (violet, emerald, rose, sky, amber). Per-device, so you can each pick your own look.
 
-### The budget (the part we polished first)
+### Plan — model it before you live it
+
+- **The Plan page** (inspired by a standalone planner we loved enough to absorb) is a full modeling sandbox for the shared pot: enter gross salaries, drag a 401(k) slider, list every paycheck deduction with its real tax treatment (§125 medical is FICA-free; plain pre-tax isn't) — and The Fold computes 2026 federal brackets, FICA with the wage-base cap, and a flat state rate to land on your **take-home pool**. Toggle *married filing jointly* vs *two single filers* and watch what marriage does to the bill.
+- **A sankey of every dollar** — both incomes flowing through pre-tax, taxes, and post-tax into the pool, then out to living / savings / investments / trip fund / personal allowances. Hover anything for $/mo and % of gross.
+- **Sliders that argue back** — drag any pool bucket and the others rebalance proportionally so it always totals 100%. Set a trip goal and get an ETA ("$6,000 ≈ 10.7 months — Jul 2027").
+- **Who funds it vs. who it's *for*** — every planned category splits two ways at once: *funds* follows income share, and a per-line **benefit slider** captures whose expense it really is. A fairness check then shows what each of you puts in vs. what flows back, with the gap as a known, discussed number instead of a silent one. Personal allowances: equal dollars or proportional, with the trade-off spelled out.
+- **Scenarios** — snapshot the whole page under a name ("Aggressive savings", "If Sam goes part-time"), reload or delete them anytime; the live plan autosaves as you drag.
+- **The plan meets reality** — one click pre-fills the whole model from your *tracked* incomes and 3-month category averages, and a **plan vs. actually-happened** section scores each month against the model: spent vs. planned with a today marker, fixed bills that match show "✓ paid", and red only ever means *actually over* — never a scary extrapolation.
+
+### The budget (the tracking side, polished first)
 
 - **Four budgeting methods, one engine.** Pick how you want to budget in Settings and the Budget page reframes around it — switch anytime, nothing is lost:
   - **Envelopes (zero-based)** — assign every dollar, watch each envelope's available balance (YNAB-style; the default).

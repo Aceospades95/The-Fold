@@ -20,6 +20,7 @@ import { instanceRoutes } from './routes/instance.js'
 import { listRoutes } from './routes/lists.js'
 import { merchantRoutes } from './routes/merchants.js'
 import { netWorthRoutes } from './routes/networth.js'
+import { planRoutes } from './routes/plan.js'
 import { recurringRoutes } from './routes/recurring.js'
 import { reviewRoutes } from './routes/review.js'
 import { summaryRoutes } from './routes/summary.js'
@@ -79,6 +80,7 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
       await priv.register(exportRoutes)
       await priv.register(reviewRoutes)
       await priv.register(insightsRoutes)
+      await priv.register(planRoutes)
     },
     { prefix: '/api' },
   )

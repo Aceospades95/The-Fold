@@ -26,6 +26,16 @@ Phased so every stage ships something you two actually use, and the spine (house
 - iCal calendar feed (trips, stops, due items) for Google Calendar subscription.
 - Dashboard summary; demo seed data.
 
+## Phase 1c — The Plan page ✅
+
+- [x] Modeling sandbox: gross incomes, 401(k) slider, per-paycheck deductions with §125/HSA/pre-tax/post-tax treatments.
+- [x] Computed taxes: 2026 federal brackets (MFJ + two-single-filers toggle), FICA with wage-base cap, flat state rate, adjustable federal deduction.
+- [x] Take-home pool with proportionally-rebalancing bucket sliders (living / savings / investments / trip / personal) and a trip-goal ETA.
+- [x] Money sankey (incomes → deductions/taxes → pool → buckets) with hover detail.
+- [x] Planned categories with funds-by-income vs benefit-split sliders; fairness check (puts in vs gets out); equal-vs-proportional allowances.
+- [x] Named scenarios with autosave; one-click pull from tracked incomes & 3-month category averages.
+- [x] Plan vs. actual per month: pace marker, run rate, "✓ paid" for matched fixed bills, red only when actually over.
+
 ## Phase 1 — Make the money real
 
 - [x] CSV import with a review-and-match screen (category + split per row, duplicate detection).

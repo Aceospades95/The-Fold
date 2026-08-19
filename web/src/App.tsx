@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import type { MeResponse, UserPublic } from '@fold/shared'
-import { BarChart3, CalendarRange, LayoutDashboard, ListChecks, LogOut, MoreHorizontal, PiggyBank, ReceiptText, Settings as SettingsIcon, Sparkles, TrendingUp } from 'lucide-react'
+import { BarChart3, CalendarRange, LayoutDashboard, ListChecks, LogOut, MoreHorizontal, PiggyBank, ReceiptText, Settings as SettingsIcon, SlidersHorizontal, Sparkles, TrendingUp } from 'lucide-react'
 import { api, onConnectionChange } from './api'
 import { Avatar, cls } from './ui'
 
@@ -32,6 +32,7 @@ import TripDetail from './pages/TripDetail'
 import Lists from './pages/Lists'
 import Insights from './pages/Insights'
 import NetWorth from './pages/NetWorth'
+import Plan from './pages/Plan'
 import Reports from './pages/Reports'
 import Review from './pages/Review'
 import Settings from './pages/Settings'
@@ -52,6 +53,7 @@ export function useMe(): MeContextValue {
 
 const NAV = [
   { to: '/', label: 'Home', icon: LayoutDashboard },
+  { to: '/plan', label: 'Plan', icon: SlidersHorizontal },
   { to: '/budget', label: 'Budget', icon: PiggyBank },
   { to: '/transactions', label: 'Spending', icon: ReceiptText },
   { to: '/networth', label: 'Net worth', icon: TrendingUp },
@@ -62,8 +64,9 @@ const NAV = [
   { to: '/settings', label: 'Settings', icon: SettingsIcon },
 ]
 
-// Phones get four real tabs (the daily set) + a More sheet — eight cramped tabs helps nobody.
-const MOBILE_MAIN = ['/', '/budget', '/transactions', '/lists']
+// Phones get four real tabs + a More sheet — the shared budget is the heart of
+// the app, so Plan rides up front and Lists lives one tap away in More.
+const MOBILE_MAIN = ['/', '/plan', '/budget', '/transactions']
 const MAIN_TABS = NAV.filter((n) => MOBILE_MAIN.includes(n.to))
 const MORE_TABS = NAV.filter((n) => !MOBILE_MAIN.includes(n.to))
 
@@ -245,6 +248,7 @@ export default function App() {
       <Shell>
         <Routes location={location}>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/plan" element={<Plan />} />
           <Route path="/budget" element={<Budget />} />
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/networth" element={<NetWorth />} />

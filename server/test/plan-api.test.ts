@@ -104,29 +104,43 @@ describe('plan bootstrap', () => {
 describe('plan persistence & scenarios', () => {
   it('saves, round-trips, and stamps who saved', async () => {
     const { state } = await get('/api/plan')
-    state.trip_goal = 8000
-    state.alloc_locked = ['savings']
+    state.buckets[2].goal = 8000
+    state.bucket_locked = [state.buckets[0].id]
     state.people[0].next_payday = '2026-09-04'
     const put = await app.inject({ method: 'PUT', url: '/api/plan', cookies: cookie, payload: { state } })
     expect(put.statusCode).toBe(200)
     const back = await get('/api/plan')
-    expect(back.state.trip_goal).toBe(8000)
-    expect(back.state.alloc_locked).toEqual(['savings'])
+    expect(back.state.buckets[2].goal).toBe(8000)
+    expect(back.state.bucket_locked).toEqual([state.buckets[0].id])
     expect(back.state.people[0].next_payday).toBe('2026-09-04')
     expect(back.saved_by).toBe('Jake')
     expect(back.bootstrapped).toBeUndefined()
   })
 
-  it('rejects buckets that do not total 100', async () => {
+  it('rejects a split that does not total 100', async () => {
     const { state } = await get('/api/plan')
-    state.alloc = { living: 50, savings: 10, invest: 10, trip: 5, personal: 5 }
+    state.living_pct = 50
+    state.personal_pct = 5
+    state.buckets.forEach((b: { pct: number }) => { b.pct = 5 })
     const bad = await app.inject({ method: 'PUT', url: '/api/plan', cookies: cookie, payload: { state } })
     expect(bad.statusCode).toBe(400)
   })
 
+  it('accepts custom buckets — add an Emergency fund and round-trip it', async () => {
+    const { state } = await get('/api/plan')
+    state.buckets.push({ id: 'b-emergency', name: 'Emergency fund', pct: 0, goal: 15000 })
+    state.buckets[3].pct = 5
+    state.living_pct -= 5
+    const put = await app.inject({ method: 'PUT', url: '/api/plan', cookies: cookie, payload: { state } })
+    expect(put.statusCode).toBe(200)
+    const back = await get('/api/plan')
+    expect(back.state.buckets).toHaveLength(4)
+    expect(back.state.buckets[3]).toMatchObject({ name: 'Emergency fund', pct: 5, goal: 15000 })
+  })
+
   it('saves, lists, loads, overwrites, and deletes named scenarios', async () => {
     const { state } = await get('/api/plan')
-    state.trip_goal = 12000
+    state.buckets[2].goal = 12000
     await app.inject({
       method: 'POST',
       url: '/api/plan/scenarios',
@@ -138,9 +152,9 @@ describe('plan persistence & scenarios', () => {
     expect(list.scenarios[0]).toMatchObject({ name: 'Aggressive savings', saved_by: 'Jake' })
 
     const loaded = await get('/api/plan/scenarios/Aggressive%20savings')
-    expect(loaded.state.trip_goal).toBe(12000)
+    expect(loaded.state.buckets[2].goal).toBe(12000)
 
-    state.trip_goal = 15000
+    state.buckets[2].goal = 15000
     await app.inject({
       method: 'POST',
       url: '/api/plan/scenarios',

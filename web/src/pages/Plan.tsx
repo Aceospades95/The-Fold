@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type React from 'react'
 import { Link } from 'react-router-dom'
-import type { PlanAllocKey, PlanDeductionType, PlanMath, PlanPayFreq, PlanPerson, PlanState } from '@fold/shared'
+import type { PlanDeductionType, PlanMath, PlanPayFreq, PlanPerson, PlanState } from '@fold/shared'
 import {
-  PLAN_ALLOC_KEYS,
   PLAN_DED_TYPES,
   PLAN_FREQ_FACTOR,
   PLAN_FREQ_LABELS,
@@ -14,7 +13,7 @@ import {
   planId,
   planMonthGross,
   planPerCheck,
-  rebalanceAlloc,
+  setSplitValue,
 } from '@fold/shared'
 import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Lock, LockOpen, Plus, RefreshCw, X } from 'lucide-react'
 import { api, useApi } from '../api'
@@ -45,13 +44,8 @@ const FLOW = {
   post: 'var(--color-slate-300)',
 }
 
-const ALLOC_META: Record<PlanAllocKey, { label: string; color: string }> = {
-  living: { label: 'Shared living', color: FLOW.living },
-  savings: { label: 'Savings', color: FLOW.savings },
-  invest: { label: 'Investments', color: FLOW.invest },
-  trip: { label: 'Trip fund', color: FLOW.trip },
-  personal: { label: 'Personal allowances', color: 'var(--color-slate-400)' },
-}
+/** Cool companion hues cycled across custom buckets. */
+const BUCKET_COLORS = ['#38bdf8', '#818cf8', '#22d3ee', '#2dd4bf', '#60a5fa', '#c084fc', '#93c5fd', '#67e8f9']
 
 interface ActualsResponse {
   month: string
@@ -187,14 +181,30 @@ function PlanSankey({ state, math, view }: { state: PlanState; math: PlanMath; v
     const post = scaled(p0.post, p1.post)
     const pool = scaled(p0.contrib, p1.contrib)
     const k401 = scaled(p0.k401, p1.k401)
-    const health = scaled(p0.health, p1.health)
-    const otherPre = Math.max(0, pre - k401 - health)
     const fica = scaled(p0.fica, p1.fica)
     // Federal + state are joint; scale them together by what's left of tax.
     const fedStateF = m.fed + m.state > 0 ? (tax - fica) / ((m.fed + m.state) / 12) : 0
     const fed = (m.fed / 12) * fedStateF
     const st = (m.state / 12) * fedStateF
     const poolF = m.pool > 0 ? pool / (m.pool / 12) : 0
+
+    // Every paycheck line by its own name — merged when you both carry it.
+    const itemAgg = new Map<string, { label: string; val: number; post: boolean }>()
+    state.people.forEach((person, index) => {
+      const F = index === 0 ? FA : FB
+      for (const item of person.items) {
+        const monthly = (item.per === 'yr' ? item.amt / 12 : item.amt) * F
+        if (monthly <= 0) continue
+        const isPost = item.type === 'posttax'
+        const label = item.name.trim() || 'Deduction'
+        const key = `${isPost ? 'post' : 'pre'}:${label.toLowerCase()}`
+        const entry = itemAgg.get(key) ?? { label, val: 0, post: isPost }
+        entry.val += monthly
+        itemAgg.set(key, entry)
+      }
+    })
+    const preItems = [...itemAgg.values()].filter((v) => !v.post)
+    const postItems = [...itemAgg.values()].filter((v) => v.post)
 
     const col1: SankeyNode[] = [
       { id: 'A', label: a.name, val: (p0.gross / 12) * FA, color: colorA },
@@ -208,19 +218,48 @@ function PlanSankey({ state, math, view }: { state: PlanState; math: PlanMath; v
     ]
     const col3: SankeyNode[] = [
       { id: 'K401', label: '401(k) retirement', val: k401, color: FLOW.pre },
-      { id: 'HLTH', label: 'Health & benefits', val: health, color: FLOW.pre },
-      { id: 'OPRE', label: 'Other pre-tax', val: otherPre, color: FLOW.pre },
+      ...preItems.map((item, i) => ({ id: `PI${i}`, label: item.label, val: item.val, color: FLOW.pre })),
       { id: 'FED', label: 'Federal income tax', val: fed, color: FLOW.tax },
       { id: 'FICA', label: 'FICA payroll tax', val: fica, color: FLOW.tax },
       { id: 'ST', label: 'State income tax', val: st, color: FLOW.tax },
-      { id: 'PSTD', label: 'Post-tax lines', val: post, color: FLOW.post },
-      { id: 'LIV', label: 'Shared living', val: m.alloc.living * poolF, color: FLOW.living },
-      { id: 'SAV', label: 'Savings', val: m.alloc.savings * poolF, color: FLOW.savings },
-      { id: 'INV', label: 'Investments', val: m.alloc.invest * poolF, color: FLOW.invest },
-      { id: 'TRIP', label: 'Trip fund', val: m.alloc.trip * poolF, color: FLOW.trip },
+      ...postItems.map((item, i) => ({ id: `PO${i}`, label: item.label, val: item.val, color: FLOW.post })),
+      { id: 'LIV', label: 'Living expenses', val: m.living_mo * poolF, color: FLOW.living },
+      ...state.buckets.map((bucket, i) => ({
+        id: `BK${i}`,
+        label: bucket.name,
+        val: (m.buckets_mo[i] ?? 0) * poolF,
+        color: BUCKET_COLORS[i % BUCKET_COLORS.length],
+      })),
       { id: 'PA', label: `Personal — ${a.name}`, val: m.personal_a * poolF, color: colorA },
       { id: 'PB', label: `Personal — ${b.name}`, val: m.personal_b * poolF, color: colorB },
     ]
+
+    // Fourth column: what the living slice is actually made of.
+    const living = m.living_mo * poolF
+    const catVals = state.cats
+      .map((c, i) => ({ name: (c.name || 'Category').trim() || 'Category', val: (m.cat_monthly[i] ?? 0) * poolF }))
+      .filter((c) => c.val > 0.5)
+      .sort((x, y) => y.val - x.val)
+    const catTotal = catVals.reduce((sum, c) => sum + c.val, 0)
+    // If the plan overshoots the slice, squeeze the breakdown to fit — section 5
+    // is where the overshoot itself gets called out in red.
+    const fit = catTotal > living && catTotal > 0 ? living / catTotal : 1
+    const top = catVals.slice(0, 6).map((c) => ({ ...c, val: c.val * fit }))
+    const restVal = catVals.slice(6).reduce((sum, c) => sum + c.val, 0) * fit
+    const bufferVal = Math.max(0, living - catTotal * fit)
+    const col4: SankeyNode[] = [
+      ...top.map((c, i) => ({
+        id: `CAT${i}`,
+        label: c.name.length > 18 ? `${c.name.slice(0, 17)}…` : c.name,
+        val: c.val,
+        color: FLOW.living,
+      })),
+      ...(restVal > 0.5
+        ? [{ id: 'CATREST', label: `Other (${catVals.length - top.length} more)`, val: restVal, color: 'var(--color-slate-400)' }]
+        : []),
+      ...(bufferVal > 0.5 ? [{ id: 'CATBUF', label: 'Unplanned buffer', val: bufferVal, color: 'var(--color-slate-300)' }] : []),
+    ]
+
     const rawLinks: [string, string, number][] = [
       ['A', 'PRE', (p0.income_exempt / 12) * FA],
       ['A', 'TAX', ((p0.fica + p0.share_tax) / 12) * FA],
@@ -231,23 +270,21 @@ function PlanSankey({ state, math, view }: { state: PlanState; math: PlanMath; v
       ['B', 'POST', (p1.post / 12) * FB],
       ['B', 'POOL', (p1.contrib / 12) * FB],
       ['PRE', 'K401', k401],
-      ['PRE', 'HLTH', health],
-      ['PRE', 'OPRE', otherPre],
+      ...preItems.map((item, i): [string, string, number] => ['PRE', `PI${i}`, item.val]),
       ['TAX', 'FED', fed],
       ['TAX', 'FICA', fica],
       ['TAX', 'ST', st],
-      ['POST', 'PSTD', post],
-      ['POOL', 'LIV', m.alloc.living * poolF],
-      ['POOL', 'SAV', m.alloc.savings * poolF],
-      ['POOL', 'INV', m.alloc.invest * poolF],
-      ['POOL', 'TRIP', m.alloc.trip * poolF],
+      ...postItems.map((item, i): [string, string, number] => ['POST', `PO${i}`, item.val]),
+      ['POOL', 'LIV', m.living_mo * poolF],
+      ...state.buckets.map((bucket, i): [string, string, number] => ['POOL', `BK${i}`, (m.buckets_mo[i] ?? 0) * poolF]),
       ['POOL', 'PA', m.personal_a * poolF],
       ['POOL', 'PB', m.personal_b * poolF],
+      ...col4.map((n): [string, string, number] => ['LIV', n.id, n.val]),
     ]
     const H = 520
     const PADY = 20
     const GAP = 12
-    const X = [150, 473, 796]
+    const X = [150, 455, 760, 1020]
     const byId: Record<string, SankeyNode> = {}
     ;[col1, col2, col3].forEach((col, ci) => {
       const live = col.filter((n) => n.val > 0.5)
@@ -265,6 +302,25 @@ function PlanSankey({ state, math, view }: { state: PlanState; math: PlanMath; v
         y += n.h + GAP
       }
     })
+    // Column 4 rides alongside the living node: same dollars-per-pixel scale,
+    // centered on it, so the breakdown reads as a zoom-in rather than a resort.
+    const liv = byId.LIV
+    if (liv) {
+      const live4 = col4.filter((n) => n.val > 0.5)
+      const scale4 = liv.h! / (liv.val || 1)
+      const totalH = live4.reduce((sum, n) => sum + Math.max(2, n.val * scale4), 0) + GAP * Math.max(0, live4.length - 1)
+      let y = Math.min(Math.max(PADY, liv.y! + liv.h! / 2 - totalH / 2), Math.max(PADY, H - PADY - totalH))
+      for (const n of live4) {
+        n.x = X[3]
+        n.y = y
+        n.h = Math.max(2, n.val * scale4)
+        n.col = 3
+        n.inY = y
+        n.outY = y
+        byId[n.id] = n
+        y += n.h + GAP
+      }
+    }
     const viewGross = col1.reduce((sum, n) => sum + n.val, 0) || grossMo
     const paths: {
       d: string
@@ -315,7 +371,7 @@ function PlanSankey({ state, math, view }: { state: PlanState; math: PlanMath; v
   const viewGross = nodes.filter((n) => n.col === 0).reduce((sum, n) => sum + n.val, 0) || 1
   return (
     <div ref={boxRef} className="relative overflow-x-auto">
-      <svg viewBox="0 0 960 520" className="w-full min-w-[640px]" role="img" aria-label="Money flow from incomes through deductions and taxes to budget buckets">
+      <svg viewBox="0 0 1180 520" className="w-full min-w-[820px]" role="img" aria-label="Money flow from incomes through deductions and taxes to budget buckets">
         <defs>
           {links.map((link, i) => (
             <linearGradient key={i} id={`flow-g${i}`} gradientUnits="userSpaceOnUse" x1={link.x0} x2={link.x1} y1="0" y2="0">
@@ -729,9 +785,10 @@ export default function Plan() {
   const colorA = memberVar(a.color)
   const colorB = memberVar(b.color)
   const fair = fairness(plan, math)
-  const saveMo = math.alloc.savings + math.alloc.invest + math.alloc.trip + (math.people[0].k401 + math.people[1].k401) / 12
-  const tripMonths = math.alloc.trip > 0.5 ? plan.trip_goal / math.alloc.trip : null
-  const tripEta = tripMonths ? new Date(new Date().setMonth(new Date().getMonth() + Math.ceil(tripMonths))) : null
+  const saveMo = math.buckets_mo.reduce((sum, v) => sum + v, 0) + (math.people[0].k401 + math.people[1].k401) / 12
+  const goalBucket = plan.buckets.map((b, i) => ({ b, mo: math.buckets_mo[i] ?? 0 })).find(({ b }) => b.goal != null && b.goal > 0)
+  const goalMonths = goalBucket && goalBucket.mo > 0.5 ? goalBucket.b.goal! / goalBucket.mo : null
+  const goalEta = goalMonths ? new Date(new Date().setMonth(new Date().getMonth() + Math.ceil(goalMonths))) : null
 
   // Monthly view averages the year; call out the extra-check months explicitly.
   const rhythmParts = plan.people
@@ -822,12 +879,15 @@ export default function Plan() {
           <p className="mt-0.5 text-[11px] text-slate-400">incl. 401(k) — {math.gross > 0 ? (((saveMo * 12) / math.gross) * 100).toFixed(1) : '0'}% of gross</p>
         </Card>
         <Card className="!py-4">
-          <p className="text-xs text-slate-500">Trip fund</p>
-          <p className="mt-0.5 text-[27px] font-bold leading-tight">{fmt$(math.alloc.trip)}<span className="text-sm font-normal text-slate-400">/mo</span></p>
+          <p className="text-xs text-slate-500">{goalBucket ? goalBucket.b.name : 'Set aside'}</p>
+          <p className="mt-0.5 text-[27px] font-bold leading-tight">
+            {fmt$(goalBucket ? goalBucket.mo : math.buckets_mo.reduce((sum, v) => sum + v, 0))}
+            <span className="text-sm font-normal text-slate-400">/mo</span>
+          </p>
           <p className="mt-0.5 text-[11px] text-slate-400">
-            {tripMonths && tripEta
-              ? `${fmt$(plan.trip_goal)} goal ≈ ${tripMonths.toFixed(1)} mo (${tripEta.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })})`
-              : 'set a trip % to see a date'}
+            {goalBucket && goalMonths && goalEta
+              ? `${fmt$(goalBucket.b.goal!)} goal ≈ ${goalMonths.toFixed(1)} mo (${goalEta.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })})`
+              : 'give any bucket a goal to see a date'}
           </p>
         </Card>
       </div>
@@ -997,86 +1057,143 @@ export default function Plan() {
       </Card>
 
       <Card>
-        <SectionTitle n={4} title="Split the take-home pool" hint="Drag one — the rest rebalance to keep 100%." />
-        {PLAN_ALLOC_KEYS.map((key) => {
-          const locked = plan.alloc_locked.includes(key)
-          const setPct = (v: number): void =>
-            update((d) => {
-              d.alloc = rebalanceAlloc(d.alloc, key, v, d.alloc_locked.filter((k) => k !== key))
-            })
+        <SectionTitle n={4} title="Split the take-home pool" hint="Living expenses, your own buckets, and personal allowances — drag one, the rest rebalance to keep 100%." />
+        {[
+          { key: 'living', name: 'Living expenses', color: FLOW.living, index: -1 },
+          ...plan.buckets.map((bucket, index) => ({ key: bucket.id, name: bucket.name, color: BUCKET_COLORS[index % BUCKET_COLORS.length], index })),
+          { key: 'personal', name: 'Personal allowances', color: 'var(--color-slate-400)', index: -1 },
+        ].map((row) => {
+          const bucket = row.index >= 0 ? plan.buckets[row.index] : null
+          const pct = row.key === 'living' ? plan.living_pct : row.key === 'personal' ? plan.personal_pct : bucket!.pct
+          const monthly = row.key === 'living' ? math.living_mo : row.key === 'personal' ? math.personal_mo : math.buckets_mo[row.index] ?? 0
+          const locked = plan.bucket_locked.includes(row.key)
+          const setPct = (v: number): void => update((d) => setSplitValue(d, row.key, v))
           return (
-            <div
-              key={key}
-              className="mb-2.5 grid grid-cols-[130px_1fr_76px_96px_30px] items-center gap-2 text-sm sm:grid-cols-[180px_1fr_84px_108px_32px] sm:gap-3"
-            >
-              <span className="flex items-center gap-2 text-xs sm:text-[13px]">
-                <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ backgroundColor: ALLOC_META[key].color }} />
-                <span className="truncate">{ALLOC_META[key].label}</span>
-              </span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={0.5}
-                value={plan.alloc[key]}
-                disabled={locked}
-                aria-label={`${ALLOC_META[key].label} percent of take-home`}
-                onChange={(e) => setPct(parseFloat(e.target.value))}
-                className="w-full accent-[var(--color-accent)] disabled:opacity-40"
-              />
-              <span className="flex items-center justify-end gap-0.5">
-                <NumberInput
-                  value={Math.round(plan.alloc[key] * 10) / 10}
+            <div key={row.key} className="mb-1">
+              <div className="grid grid-cols-[130px_1fr_76px_96px_30px_26px] items-center gap-2 text-sm sm:grid-cols-[180px_1fr_84px_108px_32px_26px] sm:gap-3">
+                <span className="flex items-center gap-2 text-xs sm:text-[13px]">
+                  <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ backgroundColor: row.color }} />
+                  {bucket ? (
+                    <input
+                      value={bucket.name}
+                      aria-label="Bucket name"
+                      onChange={(e) => update((d) => { d.buckets[row.index].name = e.target.value })}
+                      className="w-full min-w-0 rounded-md border border-transparent bg-transparent px-1 py-0.5 hover:border-slate-200 focus:border-slate-300 focus:bg-white"
+                    />
+                  ) : (
+                    <span className="truncate font-medium">{row.name}</span>
+                  )}
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  value={pct}
                   disabled={locked}
-                  aria-label={`${ALLOC_META[key].label} percent value`}
-                  onValue={(v) => setPct(Math.min(100, v))}
-                  className="w-12 rounded-md border border-slate-200 bg-white px-1 py-0.5 text-right text-xs font-semibold tabular-nums disabled:opacity-50"
+                  aria-label={`${row.name} percent of take-home`}
+                  onChange={(e) => setPct(parseFloat(e.target.value))}
+                  className="w-full accent-[var(--color-accent)] disabled:opacity-40"
                 />
-                <span className="text-xs text-slate-400">%</span>
-              </span>
-              <span className="flex items-center justify-end gap-0.5">
-                <NumberInput
-                  value={Math.round(math.alloc[key])}
-                  disabled={locked}
-                  aria-label={`${ALLOC_META[key].label} dollars per month`}
-                  onValue={(v) => setPct(math.pool_mo > 0 ? Math.min(100, (v / math.pool_mo) * 100) : 0)}
-                  className="w-16 rounded-md border border-slate-200 bg-white px-1 py-0.5 text-right text-xs tabular-nums text-slate-600 disabled:opacity-50"
-                />
-                <span className="text-[10px] text-slate-400">/mo</span>
-              </span>
-              <button
-                title={locked ? 'Unlock — let rebalancing move it again' : 'Lock this bucket in place'}
-                aria-label={`${locked ? 'Unlock' : 'Lock'} ${ALLOC_META[key].label}`}
-                onClick={() =>
-                  update((d) => {
-                    d.alloc_locked = locked ? d.alloc_locked.filter((k) => k !== key) : [...d.alloc_locked, key]
-                  })
-                }
-                className={cls(
-                  'justify-self-center rounded p-1 transition-colors',
-                  locked ? 'text-violet-600 hover:bg-violet-50' : 'text-slate-300 hover:bg-slate-100 hover:text-slate-500',
+                <span className="flex items-center justify-end gap-0.5">
+                  <NumberInput
+                    value={Math.round(pct * 10) / 10}
+                    disabled={locked}
+                    aria-label={`${row.name} percent value`}
+                    onValue={(v) => setPct(Math.min(100, v))}
+                    className="w-12 rounded-md border border-slate-200 bg-white px-1 py-0.5 text-right text-xs font-semibold tabular-nums disabled:opacity-50"
+                  />
+                  <span className="text-xs text-slate-400">%</span>
+                </span>
+                <span className="flex items-center justify-end gap-0.5">
+                  <NumberInput
+                    value={Math.round(monthly)}
+                    disabled={locked}
+                    aria-label={`${row.name} dollars per month`}
+                    onValue={(v) => setPct(math.pool_mo > 0 ? Math.min(100, (v / math.pool_mo) * 100) : 0)}
+                    className="w-16 rounded-md border border-slate-200 bg-white px-1 py-0.5 text-right text-xs tabular-nums text-slate-600 disabled:opacity-50"
+                  />
+                  <span className="text-[10px] text-slate-400">/mo</span>
+                </span>
+                <button
+                  title={locked ? 'Unlock — let rebalancing move it again' : 'Lock this slice in place'}
+                  aria-label={`${locked ? 'Unlock' : 'Lock'} ${row.name}`}
+                  onClick={() =>
+                    update((d) => {
+                      d.bucket_locked = locked ? d.bucket_locked.filter((k) => k !== row.key) : [...d.bucket_locked, row.key]
+                    })
+                  }
+                  className={cls(
+                    'justify-self-center rounded p-1 transition-colors',
+                    locked ? 'text-violet-600 hover:bg-violet-50' : 'text-slate-300 hover:bg-slate-100 hover:text-slate-500',
+                  )}
+                >
+                  {locked ? <Lock size={14} /> : <LockOpen size={14} />}
+                </button>
+                {bucket ? (
+                  <button
+                    title="Remove bucket (its share folds into Living expenses)"
+                    aria-label={`Remove ${row.name} bucket`}
+                    onClick={() =>
+                      update((d) => {
+                        const removed = d.buckets[row.index]
+                        d.living_pct += removed.pct
+                        d.bucket_locked = d.bucket_locked.filter((k) => k !== removed.id)
+                        d.buckets.splice(row.index, 1)
+                      })
+                    }
+                    className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-500"
+                  >
+                    <X size={13} />
+                  </button>
+                ) : (
+                  <span />
                 )}
-              >
-                {locked ? <Lock size={14} /> : <LockOpen size={14} />}
-              </button>
+              </div>
+              {bucket && (
+                <div className="mb-1.5 ml-[152px] flex items-center gap-1.5 text-[11px] text-slate-400 sm:ml-[196px]">
+                  {bucket.goal != null ? (
+                    <>
+                      <span>Goal $</span>
+                      <NumberInput
+                        value={bucket.goal}
+                        aria-label={`${row.name} goal`}
+                        onValue={(v) => update((d) => { d.buckets[row.index].goal = v })}
+                        className="w-16 rounded border border-slate-200 bg-white px-1 py-0.5 text-right text-[11px] tabular-nums"
+                      />
+                      {bucket.goal > 0 && monthly > 0.5 && <span>≈ {(bucket.goal / monthly).toFixed(1)} mo</span>}
+                      <button
+                        aria-label={`Remove ${row.name} goal`}
+                        onClick={() => update((d) => { d.buckets[row.index].goal = null })}
+                        className="rounded p-0.5 text-slate-300 hover:text-red-500"
+                      >
+                        <X size={10} />
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => update((d) => { d.buckets[row.index].goal = 5000 })}
+                      className="text-slate-400 hover:text-slate-600"
+                    >
+                      + goal
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )
         })}
-        <div className="mt-4 max-w-md">
-          <div className="grid grid-cols-[1fr_110px_70px] items-center gap-2.5 text-xs text-slate-500">
-            <span>Trip goal ($)</span>
-            <NumberInput
-              value={plan.trip_goal}
-              onValue={(v) => update((d) => { d.trip_goal = v })}
-              className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-right text-sm tabular-nums"
-            />
-            <span className="text-right text-sm font-medium tabular-nums text-slate-700">{tripMonths ? `${tripMonths.toFixed(1)} mo` : '—'}</span>
-          </div>
-        </div>
+        <button
+          onClick={() => update((d) => { d.buckets.push({ id: planId(), name: 'New bucket', pct: 0, goal: null }) })}
+          className="mt-2 rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-xs text-slate-500 hover:border-slate-400 hover:text-slate-700"
+        >
+          <Plus size={11} className="mr-1 inline" />
+          Add bucket
+        </button>
       </Card>
 
       <Card>
-        <SectionTitle n={5} title="Planned shared budget" />
+        <SectionTitle n={5} title="Living expenses, itemized" />
         <div className="mt-2 overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
@@ -1217,10 +1334,10 @@ export default function Plan() {
                 <td />
               </tr>
               <tr className="border-t border-slate-300 font-semibold">
-                <td className="py-1.5 pr-2">Total (= living bucket)</td>
-                <td className="py-1.5 pr-2 text-left tabular-nums">{fmt$(math.alloc.living)}</td>
-                <td className="py-1.5 pr-2 text-right tabular-nums">{fmt$(math.alloc.living * math.people[0].share)}</td>
-                <td className="py-1.5 pr-2 text-right tabular-nums">{fmt$(math.alloc.living * math.people[1].share)}</td>
+                <td className="py-1.5 pr-2">Total (= Living expenses slice)</td>
+                <td className="py-1.5 pr-2 text-left tabular-nums">{fmt$(math.living_mo)}</td>
+                <td className="py-1.5 pr-2 text-right tabular-nums">{fmt$(math.living_mo * math.people[0].share)}</td>
+                <td className="py-1.5 pr-2 text-right tabular-nums">{fmt$(math.living_mo * math.people[1].share)}</td>
                 <td />
                 <td className="py-1.5 pr-2 text-right tabular-nums">
                   {fmt$(plan.cats.reduce((sum, c, i) => sum + ((math.cat_monthly[i] ?? 0) * c.benefit_a) / 100, 0) + math.buffer / 2)}
@@ -1372,16 +1489,16 @@ export default function Plan() {
                   )}
                   <tr className="border-t border-slate-300 font-semibold">
                     <td className="py-2 pr-2">Shared total</td>
-                    <td className="py-2 pr-2 text-right tabular-nums">{fmt$(math.alloc.living)}</td>
+                    <td className="py-2 pr-2 text-right tabular-nums">{fmt$(math.living_mo)}</td>
                     <td className="py-2 pr-2 text-right tabular-nums">{fmtMoney(actuals.shared_total_cents)}</td>
                     <td className="py-2 pl-3">
                       <div className="relative h-2 overflow-hidden rounded-full bg-slate-100">
                         <div
                           className="h-full rounded-full"
                           style={{
-                            width: `${math.alloc.living > 0 ? Math.min(100, (actuals.shared_total_cents / 100 / math.alloc.living) * 100) : 0}%`,
+                            width: `${math.living_mo > 0 ? Math.min(100, (actuals.shared_total_cents / 100 / math.living_mo) * 100) : 0}%`,
                             backgroundColor:
-                              actuals.shared_total_cents / 100 > math.alloc.living ? '#ef4444' : 'var(--color-accent)',
+                              actuals.shared_total_cents / 100 > math.living_mo ? '#ef4444' : 'var(--color-accent)',
                           }}
                         />
                       </div>
@@ -1389,12 +1506,12 @@ export default function Plan() {
                     <td
                       className={cls(
                         'py-2 pr-2 text-right tabular-nums',
-                        actuals.shared_total_cents / 100 > math.alloc.living && 'text-red-600',
+                        actuals.shared_total_cents / 100 > math.living_mo && 'text-red-600',
                       )}
                     >
                       {isCurrentMonth && elapsedPct > 0
                         ? `≈ ${fmt$(actuals.shared_total_cents / 100 / elapsedPct)}`
-                        : fmt$(actuals.shared_total_cents / 100 - math.alloc.living)}
+                        : fmt$(actuals.shared_total_cents / 100 - math.living_mo)}
                     </td>
                   </tr>
                 </tbody>
@@ -1433,8 +1550,8 @@ export default function Plan() {
           </div>
           <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500">
             {plan.personal_mode === 'equal'
-              ? `Equal mode: identical allowances, whatever each of you earns. Proportional would give ${a.name} ${fmt$(math.alloc.personal * math.people[0].share)} and ${b.name} ${fmt$(math.alloc.personal * math.people[1].share)} — a ${fmt$(Math.abs(math.alloc.personal * (math.people[0].share - math.people[1].share)))}/mo gap.`
-              : `Proportional mode: allowances follow income share, a ${fmt$(Math.abs(math.personal_a - math.personal_b))}/mo gap. Equal mode would give you ${fmt$(math.alloc.personal / 2)} each.`}
+              ? `Equal mode: identical allowances, whatever each of you earns. Proportional would give ${a.name} ${fmt$(math.personal_mo * math.people[0].share)} and ${b.name} ${fmt$(math.personal_mo * math.people[1].share)} — a ${fmt$(Math.abs(math.personal_mo * (math.people[0].share - math.people[1].share)))}/mo gap.`
+              : `Proportional mode: allowances follow income share, a ${fmt$(Math.abs(math.personal_a - math.personal_b))}/mo gap. Equal mode would give you ${fmt$(math.personal_mo / 2)} each.`}
           </p>
         </Card>
 

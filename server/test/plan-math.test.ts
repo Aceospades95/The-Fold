@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  PLAN_ALLOC_KEYS,
   type PlanState,
   checksInMonth,
   computePlan,
@@ -12,7 +11,7 @@ import {
   planId,
   planMonthGross,
   planPerCheck,
-  rebalanceAlloc,
+  rebalanceSplit,
 } from '@fold/shared'
 
 function base(): PlanState {
@@ -164,19 +163,25 @@ describe('computePlan', () => {
 
   it('splits personal allowances equally or by contribution share', () => {
     const state = base()
-    state.alloc = { living: 60, savings: 10, invest: 10, trip: 6, personal: 14 }
+    state.living_pct = 60
+    state.personal_pct = 14
+    state.buckets[0].pct = 10
+    state.buckets[1].pct = 10
+    state.buckets[2].pct = 6
     const equal = computePlan(state)
     expect(equal.personal_a).toBeCloseTo(equal.personal_b, 6)
     state.personal_mode = 'prop'
     const prop = computePlan(state)
     expect(prop.personal_a).toBeGreaterThan(prop.personal_b)
-    expect(prop.personal_a + prop.personal_b).toBeCloseTo(prop.alloc.personal, 6)
+    expect(prop.personal_a + prop.personal_b).toBeCloseTo(prop.personal_mo, 6)
   })
 })
 
-describe('rebalanceAlloc', () => {
-  it('always totals 100 and honors the changed slider', () => {
-    let alloc = defaultPlanState().alloc
+describe('rebalanceSplit', () => {
+  const KEYS = ['living', 'savings', 'invest', 'trip', 'personal']
+
+  it('always totals 100 and honors the changed slider, over any key set', () => {
+    let alloc: Record<string, number> = { living: 62, savings: 12, invest: 8, trip: 4, personal: 14 }
     for (const [key, value] of [
       ['living', 80],
       ['trip', 0],
@@ -184,36 +189,42 @@ describe('rebalanceAlloc', () => {
       ['savings', 100],
       ['savings', 12],
     ] as const) {
-      alloc = rebalanceAlloc(alloc, key, value)
-      const total = PLAN_ALLOC_KEYS.reduce((sum, k) => sum + alloc[k], 0)
+      alloc = rebalanceSplit(alloc, KEYS, key, value)
+      const total = KEYS.reduce((sum, k) => sum + alloc[k], 0)
       expect(total).toBeCloseTo(100, 6)
     }
     expect(alloc.savings).toBeCloseTo(12, 6)
+
+    // Custom bucket keys work the same — the key set is caller-defined.
+    const custom = rebalanceSplit({ living: 60, b1: 25, b2: 5, personal: 10 }, ['living', 'b1', 'b2', 'personal'], 'b2', 15)
+    expect(['living', 'b1', 'b2', 'personal'].reduce((sum, k) => sum + custom[k], 0)).toBeCloseTo(100, 6)
+    expect(custom.b2).toBeCloseTo(15, 6)
   })
 
-  it('recovers when one bucket had swallowed everything', () => {
-    let alloc = { living: 100, savings: 0, invest: 0, trip: 0, personal: 0 }
-    alloc = rebalanceAlloc(alloc, 'living', 60)
-    expect(PLAN_ALLOC_KEYS.reduce((sum, k) => sum + alloc[k], 0)).toBeCloseTo(100, 6)
+  it('recovers when one slice had swallowed everything', () => {
+    let alloc: Record<string, number> = { living: 100, savings: 0, invest: 0, trip: 0, personal: 0 }
+    alloc = rebalanceSplit(alloc, KEYS, 'living', 60)
+    expect(KEYS.reduce((sum, k) => sum + alloc[k], 0)).toBeCloseTo(100, 6)
     expect(alloc.savings).toBeGreaterThan(0)
   })
 
-  it('never moves a locked bucket and clamps against it', () => {
-    let alloc = { living: 62, savings: 12, invest: 8, trip: 4, personal: 14 }
-    alloc = rebalanceAlloc(alloc, 'living', 70, ['savings'])
+  it('never moves a locked slice and clamps against it', () => {
+    let alloc: Record<string, number> = { living: 62, savings: 12, invest: 8, trip: 4, personal: 14 }
+    alloc = rebalanceSplit(alloc, KEYS, 'living', 70, ['savings'])
     expect(alloc.savings).toBe(12)
     expect(alloc.living).toBeCloseTo(70, 6)
-    expect(PLAN_ALLOC_KEYS.reduce((sum, k) => sum + alloc[k], 0)).toBeCloseTo(100, 6)
+    expect(KEYS.reduce((sum, k) => sum + alloc[k], 0)).toBeCloseTo(100, 6)
 
     // Locked 12% caps everything else at 88.
-    alloc = rebalanceAlloc(alloc, 'living', 95, ['savings'])
+    alloc = rebalanceSplit(alloc, KEYS, 'living', 95, ['savings'])
     expect(alloc.living).toBeCloseTo(88, 6)
     expect(alloc.savings).toBe(12)
-    expect(PLAN_ALLOC_KEYS.reduce((sum, k) => sum + alloc[k], 0)).toBeCloseTo(100, 6)
+    expect(KEYS.reduce((sum, k) => sum + alloc[k], 0)).toBeCloseTo(100, 6)
 
-    // With every other bucket locked, the changed one just takes the remainder.
-    const pinned = rebalanceAlloc(
+    // With every other slice locked, the changed one just takes the remainder.
+    const pinned = rebalanceSplit(
       { living: 50, savings: 20, invest: 10, trip: 10, personal: 10 },
+      KEYS,
       'living',
       80,
       ['savings', 'invest', 'trip', 'personal'],
@@ -255,13 +266,22 @@ describe('migration', () => {
       trip_goal: 8000,
     }
     const migrated = migratePlanState(v1)!
-    expect(migrated.v).toBe(3)
+    expect(migrated.v).toBe(4)
     expect(migrated.tax_mode).toBe('auto')
     expect(migrated.people[0]).toMatchObject({ pay_type: 'salary', salary: 91000, k401_pct: 6, user_id: 'u1' })
     expect(migrated.cats[0]).toMatchObject({ name: 'Rent', mode: 'fixed', amt: 2100, fold_category_id: 'abc' })
-    expect(migrated.alloc.living).toBe(50)
-    // v3 passes through untouched values; junk returns null.
+    // The fixed five-way alloc folds into living/personal + three seeded buckets.
+    expect(migrated.living_pct).toBe(50)
+    expect(migrated.personal_pct).toBe(15)
+    expect(migrated.buckets.map((b) => [b.name, b.pct])).toEqual([
+      ['Savings', 20],
+      ['Investments', 10],
+      ['Trip fund', 5],
+    ])
+    expect(migrated.buckets[2].goal).toBe(8000) // trip_goal became the trip bucket's goal
+    // v4 passes through untouched values; junk returns null.
     expect(migratePlanState(migrated)!.people[0].salary).toBe(91000)
+    expect(migratePlanState(migrated)!.buckets[0].pct).toBe(20)
     expect(migratePlanState({ v: 9 })).toBeNull()
     expect(migratePlanState('nope')).toBeNull()
   })
@@ -275,7 +295,7 @@ describe('migration', () => {
       ],
     }
     const migrated = migratePlanState(v2)!
-    expect(migrated.v).toBe(3)
+    expect(migrated.v).toBe(4)
     expect(migrated.people[0]).toMatchObject({ pay_type: 'salary', salary: 91000, pay_freq: 'biweekly' })
     expect(migrated.people[1]).toMatchObject({ salary: 48000, pay_freq: 'monthly' })
     expect(planPerCheck(migrated.people[0])).toBeCloseTo(3500, 6)

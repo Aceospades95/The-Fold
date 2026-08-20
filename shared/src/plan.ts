@@ -85,8 +85,18 @@ export interface PlanCategory {
   fold_category_id?: string | null
 }
 
+/** A custom set-aside slice of the pool (savings, investments, a fund…). */
+export interface PlanBucket {
+  id: string
+  name: string
+  /** Percent of the take-home pool. */
+  pct: number
+  /** Optional dollar goal — powers the "≈ n months" ETA. */
+  goal: number | null
+}
+
 export interface PlanState {
-  v: 3
+  v: 4
   filing: PlanFiling
   /** 'auto' = 2026 brackets + FICA; 'manual' = each person's own flat rate. */
   tax_mode: 'auto' | 'manual'
@@ -95,16 +105,23 @@ export interface PlanState {
   /** Federal deduction for the couple (halved per person when filing single). */
   std_ded: number
   people: [PlanPerson, PlanPerson]
-  /** Percent of the take-home pool per bucket; always sums to 100. */
-  alloc: Record<PlanAllocKey, number>
-  /** Buckets pinned in place — rebalancing never touches them. */
-  alloc_locked: PlanAllocKey[]
+  /**
+   * The pool splits three ways: living expenses (itemized by `cats`), any
+   * number of custom set-aside buckets, and personal allowances.
+   * living_pct + Σ buckets.pct + personal_pct always totals 100.
+   */
+  living_pct: number
+  personal_pct: number
+  buckets: PlanBucket[]
+  /** Slice keys pinned in place — 'living', 'personal', or a bucket id. */
+  bucket_locked: string[]
   cats: PlanCategory[]
   personal_mode: 'equal' | 'prop'
-  trip_goal: number
 }
 
-export const PLAN_ALLOC_KEYS: PlanAllocKey[] = ['living', 'savings', 'invest', 'trip', 'personal']
+/** The fixed slice keys around the custom buckets. */
+export const PLAN_LIVING = 'living'
+export const PLAN_PERSONAL = 'personal'
 
 export const PLAN_DED_TYPES: Record<PlanDeductionType, { label: string; income_exempt: boolean; fica_exempt: boolean }> = {
   s125: { label: 'Pre-tax · no FICA (health)', income_exempt: true, fica_exempt: true },
@@ -222,14 +239,16 @@ export interface PlanMath {
   /** Yearly and monthly take-home pool. */
   pool: number
   pool_mo: number
-  /** Monthly dollars per bucket. */
-  alloc: Record<PlanAllocKey, number>
+  /** Monthly dollars for the fixed slices and each custom bucket (parallel to state.buckets). */
+  living_mo: number
+  personal_mo: number
+  buckets_mo: number[]
   personal_a: number
   personal_b: number
   /** Effective monthly dollars per planned category (parallel to state.cats). */
   cat_monthly: number[]
   cat_sum: number
-  /** living bucket − planned categories (negative = plan overshoots the bucket). */
+  /** living slice − planned categories (negative = plan overshoots the slice). */
   buffer: number
 }
 
@@ -299,10 +318,11 @@ export function computePlan(state: PlanState): PlanMath {
     return { ...p, share_tax, contrib, share: pool > 0 ? contrib / pool : 0.5 }
   }) as [PlanPersonMath, PlanPersonMath]
 
-  const alloc = {} as Record<PlanAllocKey, number>
-  for (const key of PLAN_ALLOC_KEYS) alloc[key] = ((state.alloc[key] ?? 0) / 100) * pool_mo
-  const personal_a = state.personal_mode === 'equal' ? alloc.personal / 2 : alloc.personal * people[0].share
-  const personal_b = alloc.personal - personal_a
+  const living_mo = ((Number(state.living_pct) || 0) / 100) * pool_mo
+  const personal_mo = ((Number(state.personal_pct) || 0) / 100) * pool_mo
+  const buckets_mo = state.buckets.map((b) => ((Number(b.pct) || 0) / 100) * pool_mo)
+  const personal_a = state.personal_mode === 'equal' ? personal_mo / 2 : personal_mo * people[0].share
+  const personal_b = personal_mo - personal_a
   const cat_monthly = state.cats.map((c) => planCatMonthly(c, pool_mo))
   const cat_sum = cat_monthly.reduce((sum, v) => sum + v, 0)
 
@@ -318,29 +338,33 @@ export function computePlan(state: PlanState): PlanMath {
     tax,
     pool,
     pool_mo,
-    alloc,
+    living_mo,
+    personal_mo,
+    buckets_mo,
     personal_a,
     personal_b,
     cat_monthly,
     cat_sum,
-    buffer: alloc.living - cat_sum,
+    buffer: living_mo - cat_sum,
   }
 }
 
 /**
- * Move one bucket to `value` percent and scale the others so the five always
- * total exactly 100 — the drag-one-the-rest-rebalance behavior.
+ * Move one slice to `value` percent and scale the unlocked others so the whole
+ * split always totals exactly 100 — the drag-one-the-rest-rebalance behavior.
+ * Works over any key set (living, personal, and every custom bucket id).
  */
-export function rebalanceAlloc(
-  alloc: Record<PlanAllocKey, number>,
-  changed: PlanAllocKey,
+export function rebalanceSplit(
+  values: Record<string, number>,
+  keys: string[],
+  changed: string,
   value: number,
-  locked: PlanAllocKey[] = [],
-): Record<PlanAllocKey, number> {
-  const next = { ...alloc }
+  locked: string[] = [],
+): Record<string, number> {
+  const next = { ...values }
   const lockedSet = new Set(locked.filter((k) => k !== changed))
   const lockedSum = [...lockedSet].reduce((sum, k) => sum + (next[k] ?? 0), 0)
-  const others = PLAN_ALLOC_KEYS.filter((k) => k !== changed && !lockedSet.has(k))
+  const others = keys.filter((k) => k !== changed && !lockedSet.has(k))
   if (others.length === 0) {
     next[changed] = Math.max(0, 100 - lockedSum)
     return next
@@ -355,10 +379,21 @@ export function rebalanceAlloc(
     for (const k of others) next[k] = (next[k] ?? 0) * factor
   }
   next[changed] = clamped
-  const drift = 100 - PLAN_ALLOC_KEYS.reduce((sum, k) => sum + (next[k] ?? 0), 0)
+  const drift = 100 - keys.reduce((sum, k) => sum + (next[k] ?? 0), 0)
   const biggest = [...others].sort((a, b) => (next[b] ?? 0) - (next[a] ?? 0))[0]
   next[biggest] = Math.max(0, (next[biggest] ?? 0) + drift)
   return next
+}
+
+/** Apply a rebalanced value straight onto a PlanState draft. */
+export function setSplitValue(state: PlanState, changed: string, value: number): void {
+  const keys = [PLAN_LIVING, ...state.buckets.map((b) => b.id), PLAN_PERSONAL]
+  const values: Record<string, number> = { living: state.living_pct, personal: state.personal_pct }
+  for (const bucket of state.buckets) values[bucket.id] = bucket.pct
+  const next = rebalanceSplit(values, keys, changed, value, state.bucket_locked)
+  state.living_pct = next.living
+  state.personal_pct = next.personal
+  for (const bucket of state.buckets) bucket.pct = next[bucket.id] ?? 0
 }
 
 /** Fairness view: what each person puts into the pool vs what flows back. */
@@ -372,7 +407,7 @@ export function fairness(state: PlanState, math: PlanMath): {
       0,
     ) +
     math.buffer / 2
-  const halfJoint = (math.alloc.savings + math.alloc.invest + math.alloc.trip) / 2
+  const halfJoint = math.buckets_mo.reduce((sum, v) => sum + v, 0) / 2
   return {
     puts: [math.people[0].contrib / 12, math.people[1].contrib / 12],
     gets: [getsShared(0) + math.personal_a + halfJoint, getsShared(1) + math.personal_b + halfJoint],
@@ -399,19 +434,28 @@ function defaultPerson(name: string, color: string, salary: number, k401: number
   }
 }
 
+export function defaultBuckets(tripGoal: number | null = 6000): PlanBucket[] {
+  return [
+    { id: planId(), name: 'Savings', pct: 12, goal: null },
+    { id: planId(), name: 'Investments', pct: 8, goal: null },
+    { id: planId(), name: 'Trip fund', pct: 4, goal: tripGoal },
+  ]
+}
+
 export function defaultPlanState(): PlanState {
   return {
-    v: 3,
+    v: 4,
     filing: 'mfj',
     tax_mode: 'auto',
     state_rate: 4.95,
     std_ded: STD_DED_MFJ_2026,
     people: [defaultPerson('You', '#8b5cf6', 85000, 6, 22), defaultPerson('Partner', '#0ea5e9', 70000, 5, 20)],
-    alloc: { living: 62, savings: 12, invest: 8, trip: 4, personal: 14 },
-    alloc_locked: [],
+    living_pct: 62,
+    personal_pct: 14,
+    buckets: defaultBuckets(),
+    bucket_locked: [],
     cats: [],
     personal_mode: 'equal',
-    trip_goal: 6000,
   }
 }
 
@@ -419,7 +463,7 @@ export function defaultPlanState(): PlanState {
 export function migratePlanState(input: unknown): PlanState | null {
   if (!input || typeof input !== 'object') return null
   const raw = input as Record<string, unknown>
-  if (raw.v !== 1 && raw.v !== 2 && raw.v !== 3) return null
+  if (raw.v !== 1 && raw.v !== 2 && raw.v !== 3 && raw.v !== 4) return null
   const base = defaultPlanState()
   const people = (Array.isArray(raw.people) ? raw.people : []).slice(0, 2).map((p, index) => {
     const person = (p ?? {}) as Record<string, unknown>
@@ -476,19 +520,65 @@ export function migratePlanState(input: unknown): PlanState | null {
       fold_category_id: typeof cat.fold_category_id === 'string' ? cat.fold_category_id : null,
     }
   })
+  // Split: v4 states carry living/personal/buckets directly; older states fold
+  // their fixed five-way alloc into three seeded buckets (trip keeps its goal).
+  let livingPct: number
+  let personalPct: number
+  let buckets: PlanBucket[]
+  let bucketLocked: string[]
+  if (raw.v === 4) {
+    const rawBuckets = Array.isArray(raw.buckets) ? raw.buckets : []
+    buckets = rawBuckets.map((b) => {
+      const bucket = (b ?? {}) as Record<string, unknown>
+      return {
+        id: typeof bucket.id === 'string' ? bucket.id : planId(),
+        name: typeof bucket.name === 'string' && bucket.name ? bucket.name : 'Bucket',
+        pct: typeof bucket.pct === 'number' ? bucket.pct : 0,
+        goal: typeof bucket.goal === 'number' && bucket.goal > 0 ? bucket.goal : null,
+      }
+    })
+    livingPct = typeof raw.living_pct === 'number' ? raw.living_pct : base.living_pct
+    personalPct = typeof raw.personal_pct === 'number' ? raw.personal_pct : base.personal_pct
+    const validKeys = new Set(['living', 'personal', ...buckets.map((b) => b.id)])
+    bucketLocked = Array.isArray(raw.bucket_locked)
+      ? (raw.bucket_locked.filter((k) => typeof k === 'string' && validKeys.has(k)) as string[])
+      : []
+  } else {
+    const alloc = (typeof raw.alloc === 'object' && raw.alloc ? raw.alloc : {}) as Record<string, unknown>
+    const pct = (key: string, fallback: number): number => (typeof alloc[key] === 'number' ? (alloc[key] as number) : fallback)
+    const tripGoal = typeof raw.trip_goal === 'number' && raw.trip_goal > 0 ? raw.trip_goal : null
+    const seeded: { legacy: string; name: string; pct: number; goal: number | null }[] = [
+      { legacy: 'savings', name: 'Savings', pct: pct('savings', 12), goal: null },
+      { legacy: 'invest', name: 'Investments', pct: pct('invest', 8), goal: null },
+      { legacy: 'trip', name: 'Trip fund', pct: pct('trip', 4), goal: tripGoal },
+    ]
+    const legacyToId = new Map<string, string>()
+    buckets = seeded.map((s) => {
+      const id = planId()
+      legacyToId.set(s.legacy, id)
+      return { id, name: s.name, pct: s.pct, goal: s.goal }
+    })
+    livingPct = pct('living', base.living_pct)
+    personalPct = pct('personal', base.personal_pct)
+    bucketLocked = Array.isArray(raw.alloc_locked)
+      ? (raw.alloc_locked
+          .map((k) => (k === 'living' || k === 'personal' ? k : legacyToId.get(k as string)))
+          .filter(Boolean) as string[])
+      : []
+  }
+
   return {
-    v: 3,
+    v: 4,
     filing: raw.filing === 'single' ? 'single' : 'mfj',
     tax_mode: raw.tax_mode === 'manual' ? 'manual' : 'auto',
     state_rate: typeof raw.state_rate === 'number' ? raw.state_rate : base.state_rate,
     std_ded: typeof raw.std_ded === 'number' ? raw.std_ded : base.std_ded,
     people: people as [PlanPerson, PlanPerson],
-    alloc: { ...base.alloc, ...(typeof raw.alloc === 'object' && raw.alloc ? (raw.alloc as Record<PlanAllocKey, number>) : {}) },
-    alloc_locked: Array.isArray(raw.alloc_locked)
-      ? (raw.alloc_locked.filter((k) => PLAN_ALLOC_KEYS.includes(k as PlanAllocKey)) as PlanAllocKey[])
-      : [],
+    living_pct: livingPct,
+    personal_pct: personalPct,
+    buckets,
+    bucket_locked: bucketLocked,
     cats,
     personal_mode: raw.personal_mode === 'prop' ? 'prop' : 'equal',
-    trip_goal: typeof raw.trip_goal === 'number' ? raw.trip_goal : base.trip_goal,
   }
 }

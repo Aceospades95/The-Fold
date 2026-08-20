@@ -19,7 +19,7 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Flow by real calendar month: month stepper (current month default), per-person paycheck counts from a payday anchor, Average/Year views, gradient ribbons.
 - [x] Sliders everywhere accept typed % or $ values; pool slices can be locked out of rebalancing.
 - [x] Pool split v2: Living expenses + unlimited custom buckets (name, %, optional goal with ETA) + personal allowances; add/remove/lock any bucket.
-- [x] Flow detail: every pre/post-tax deduction by name, and a fourth column itemizing living expenses (top categories + other + buffer).
+- [x] Flow detail: every pre/post-tax deduction by name; living expenses itemize in place inside the third column (toggle chip, or click the living nodes) — no extra width.
 - [x] Budgeting methods: envelopes (zero-based), 50/30/20 with adjustable percentages, pay-yourself-first with a savings goal, and plain spending tracking — all over the same engine, with need/want/save tags per category.
 - [ ] Leave/unlink a household (reverse of merging) — needs a data-custody design first.
 - [x] Change password in-app (revokes other sessions), profile edits, session list + sign-out-everywhere.

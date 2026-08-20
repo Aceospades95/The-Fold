@@ -15,7 +15,7 @@ import {
   planPerCheck,
   setSplitValue,
 } from '@fold/shared'
-import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Lock, LockOpen, Plus, RefreshCw, X } from 'lucide-react'
+import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ListTree, Lock, LockOpen, Plus, RefreshCw, X } from 'lucide-react'
 import { api, useApi } from '../api'
 import { currentMonth, fmtMoney, fmtMonth, shiftMonth } from '../format'
 import { Button, Card, EmptyState, NumberInput, cls } from '../ui'
@@ -151,7 +151,19 @@ interface SankeyNode {
 
 type FlowView = { kind: 'avg' } | { kind: 'yr' } | { kind: 'month'; month: string }
 
-function PlanSankey({ state, math, view }: { state: PlanState; math: PlanMath; view: FlowView }) {
+function PlanSankey({
+  state,
+  math,
+  view,
+  itemize,
+  onToggleItemize,
+}: {
+  state: PlanState
+  math: PlanMath
+  view: FlowView
+  itemize: boolean
+  onToggleItemize: () => void
+}) {
   const boxRef = useRef<HTMLDivElement>(null)
   const [tip, setTip] = useState<{ x: number; y: number; lines: string[] } | null>(null)
   const [a, b] = state.people
@@ -216,25 +228,8 @@ function PlanSankey({ state, math, view }: { state: PlanState; math: PlanMath; v
       { id: 'POST', label: 'Post-tax deductions', val: post, color: FLOW.post },
       { id: 'POOL', label: 'Take-home pool', val: pool, color: FLOW.pool },
     ]
-    const col3: SankeyNode[] = [
-      { id: 'K401', label: '401(k) retirement', val: k401, color: FLOW.pre },
-      ...preItems.map((item, i) => ({ id: `PI${i}`, label: item.label, val: item.val, color: FLOW.pre })),
-      { id: 'FED', label: 'Federal income tax', val: fed, color: FLOW.tax },
-      { id: 'FICA', label: 'FICA payroll tax', val: fica, color: FLOW.tax },
-      { id: 'ST', label: 'State income tax', val: st, color: FLOW.tax },
-      ...postItems.map((item, i) => ({ id: `PO${i}`, label: item.label, val: item.val, color: FLOW.post })),
-      { id: 'LIV', label: 'Living expenses', val: m.living_mo * poolF, color: FLOW.living },
-      ...state.buckets.map((bucket, i) => ({
-        id: `BK${i}`,
-        label: bucket.name,
-        val: (m.buckets_mo[i] ?? 0) * poolF,
-        color: BUCKET_COLORS[i % BUCKET_COLORS.length],
-      })),
-      { id: 'PA', label: `Personal — ${a.name}`, val: m.personal_a * poolF, color: colorA },
-      { id: 'PB', label: `Personal — ${b.name}`, val: m.personal_b * poolF, color: colorB },
-    ]
-
-    // Fourth column: what the living slice is actually made of.
+    // Living expenses: one grouped node, or its actual pieces sitting in place —
+    // same column, so the diagram never grows wider for the detail.
     const living = m.living_mo * poolF
     const catVals = state.cats
       .map((c, i) => ({ name: (c.name || 'Category').trim() || 'Category', val: (m.cat_monthly[i] ?? 0) * poolF }))
@@ -244,20 +239,41 @@ function PlanSankey({ state, math, view }: { state: PlanState; math: PlanMath; v
     // If the plan overshoots the slice, squeeze the breakdown to fit — section 5
     // is where the overshoot itself gets called out in red.
     const fit = catTotal > living && catTotal > 0 ? living / catTotal : 1
-    const top = catVals.slice(0, 6).map((c) => ({ ...c, val: c.val * fit }))
-    const restVal = catVals.slice(6).reduce((sum, c) => sum + c.val, 0) * fit
+    const top = catVals.slice(0, 5).map((c) => ({ ...c, val: c.val * fit }))
+    const restVal = catVals.slice(5).reduce((sum, c) => sum + c.val, 0) * fit
     const bufferVal = Math.max(0, living - catTotal * fit)
-    const col4: SankeyNode[] = [
-      ...top.map((c, i) => ({
-        id: `CAT${i}`,
-        label: c.name.length > 18 ? `${c.name.slice(0, 17)}…` : c.name,
-        val: c.val,
-        color: FLOW.living,
+    const livingNodes: SankeyNode[] =
+      itemize && top.length > 0
+        ? [
+            ...top.map((c, i) => ({
+              id: `LC${i}`,
+              label: c.name.length > 18 ? `${c.name.slice(0, 17)}…` : c.name,
+              val: c.val,
+              color: FLOW.living,
+            })),
+            ...(restVal > 0.5
+              ? [{ id: 'LCREST', label: `Other living (${catVals.length - top.length})`, val: restVal, color: 'var(--color-slate-400)' }]
+              : []),
+            ...(bufferVal > 0.5 ? [{ id: 'LCBUF', label: 'Living buffer', val: bufferVal, color: 'var(--color-slate-300)' }] : []),
+          ]
+        : [{ id: 'LIV', label: 'Living expenses', val: living, color: FLOW.living }]
+
+    const col3: SankeyNode[] = [
+      { id: 'K401', label: '401(k) retirement', val: k401, color: FLOW.pre },
+      ...preItems.map((item, i) => ({ id: `PI${i}`, label: item.label, val: item.val, color: FLOW.pre })),
+      { id: 'FED', label: 'Federal income tax', val: fed, color: FLOW.tax },
+      { id: 'FICA', label: 'FICA payroll tax', val: fica, color: FLOW.tax },
+      { id: 'ST', label: 'State income tax', val: st, color: FLOW.tax },
+      ...postItems.map((item, i) => ({ id: `PO${i}`, label: item.label, val: item.val, color: FLOW.post })),
+      ...livingNodes,
+      ...state.buckets.map((bucket, i) => ({
+        id: `BK${i}`,
+        label: bucket.name,
+        val: (m.buckets_mo[i] ?? 0) * poolF,
+        color: BUCKET_COLORS[i % BUCKET_COLORS.length],
       })),
-      ...(restVal > 0.5
-        ? [{ id: 'CATREST', label: `Other (${catVals.length - top.length} more)`, val: restVal, color: 'var(--color-slate-400)' }]
-        : []),
-      ...(bufferVal > 0.5 ? [{ id: 'CATBUF', label: 'Unplanned buffer', val: bufferVal, color: 'var(--color-slate-300)' }] : []),
+      { id: 'PA', label: `Personal — ${a.name}`, val: m.personal_a * poolF, color: colorA },
+      { id: 'PB', label: `Personal — ${b.name}`, val: m.personal_b * poolF, color: colorB },
     ]
 
     const rawLinks: [string, string, number][] = [
@@ -275,16 +291,15 @@ function PlanSankey({ state, math, view }: { state: PlanState; math: PlanMath; v
       ['TAX', 'FICA', fica],
       ['TAX', 'ST', st],
       ...postItems.map((item, i): [string, string, number] => ['POST', `PO${i}`, item.val]),
-      ['POOL', 'LIV', m.living_mo * poolF],
+      ...livingNodes.map((n): [string, string, number] => ['POOL', n.id, n.val]),
       ...state.buckets.map((bucket, i): [string, string, number] => ['POOL', `BK${i}`, (m.buckets_mo[i] ?? 0) * poolF]),
       ['POOL', 'PA', m.personal_a * poolF],
       ['POOL', 'PB', m.personal_b * poolF],
-      ...col4.map((n): [string, string, number] => ['LIV', n.id, n.val]),
     ]
     const H = 520
     const PADY = 20
-    const GAP = 12
-    const X = [150, 455, 760, 1020]
+    const GAP = itemize && livingNodes.length > 1 ? 9 : 12
+    const X = [150, 473, 796]
     const byId: Record<string, SankeyNode> = {}
     ;[col1, col2, col3].forEach((col, ci) => {
       const live = col.filter((n) => n.val > 0.5)
@@ -302,25 +317,6 @@ function PlanSankey({ state, math, view }: { state: PlanState; math: PlanMath; v
         y += n.h + GAP
       }
     })
-    // Column 4 rides alongside the living node: same dollars-per-pixel scale,
-    // centered on it, so the breakdown reads as a zoom-in rather than a resort.
-    const liv = byId.LIV
-    if (liv) {
-      const live4 = col4.filter((n) => n.val > 0.5)
-      const scale4 = liv.h! / (liv.val || 1)
-      const totalH = live4.reduce((sum, n) => sum + Math.max(2, n.val * scale4), 0) + GAP * Math.max(0, live4.length - 1)
-      let y = Math.min(Math.max(PADY, liv.y! + liv.h! / 2 - totalH / 2), Math.max(PADY, H - PADY - totalH))
-      for (const n of live4) {
-        n.x = X[3]
-        n.y = y
-        n.h = Math.max(2, n.val * scale4)
-        n.col = 3
-        n.inY = y
-        n.outY = y
-        byId[n.id] = n
-        y += n.h + GAP
-      }
-    }
     const viewGross = col1.reduce((sum, n) => sum + n.val, 0) || grossMo
     const paths: {
       d: string
@@ -371,7 +367,7 @@ function PlanSankey({ state, math, view }: { state: PlanState; math: PlanMath; v
   const viewGross = nodes.filter((n) => n.col === 0).reduce((sum, n) => sum + n.val, 0) || 1
   return (
     <div ref={boxRef} className="relative overflow-x-auto">
-      <svg viewBox="0 0 1180 520" className="w-full min-w-[820px]" role="img" aria-label="Money flow from incomes through deductions and taxes to budget buckets">
+      <svg viewBox="0 0 960 520" className="w-full min-w-[640px]" role="img" aria-label="Money flow from incomes through deductions and taxes to budget buckets">
         <defs>
           {links.map((link, i) => (
             <linearGradient key={i} id={`flow-g${i}`} gradientUnits="userSpaceOnUse" x1={link.x0} x2={link.x1} y1="0" y2="0">
@@ -396,6 +392,7 @@ function PlanSankey({ state, math, view }: { state: PlanState; math: PlanMath; v
           const anchor = anchorEnd ? 'end' : 'start'
           const cy = n.y! + n.h! / 2
           const pct = ((n.val / viewGross) * 100).toFixed(1)
+          const isLiving = n.id === 'LIV' || n.id.startsWith('LC')
           return (
             <g key={n.id}>
               <rect
@@ -404,10 +401,17 @@ function PlanSankey({ state, math, view }: { state: PlanState; math: PlanMath; v
                 width={14}
                 height={n.h}
                 rx={3}
-                style={{ fill: n.color }}
+                style={{ fill: n.color, cursor: isLiving ? 'pointer' : undefined }}
                 tabIndex={0}
-                aria-label={`${n.label}: ${fmt$(n.val)} ${per}`}
-                onPointerMove={(e) => show(e, [`${fmt$(n.val)} ${per}`, n.label, `${pct}% of gross`])}
+                aria-label={`${n.label}: ${fmt$(n.val)} ${per}${isLiving ? ' — click to toggle the living breakdown' : ''}`}
+                onClick={isLiving ? onToggleItemize : undefined}
+                onPointerMove={(e) =>
+                  show(e, [
+                    `${fmt$(n.val)} ${per}`,
+                    n.id.startsWith('LC') ? `${n.label} · living` : n.label,
+                    `${pct}% of gross`,
+                  ])
+                }
                 onPointerLeave={() => setTip(null)}
               />
               {n.h! >= 30 ? (
@@ -672,6 +676,7 @@ export default function Plan() {
   const [applyNote, setApplyNote] = useState<string | null>(null)
   const [flowKind, setFlowKind] = useState<'month' | 'avg' | 'yr'>('month')
   const [flowMonth, setFlowMonth] = useState(currentMonth())
+  const [itemizeLiving, setItemizeLiving] = useState(true)
   const { data: actuals } = useApi<ActualsResponse>(`/plan/actuals?month=${actualMonth}`)
   const dirtyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const planRef = useRef<PlanState | null>(null)
@@ -933,6 +938,18 @@ export default function Plan() {
                 </button>
               ))}
             </div>
+            <button
+              onClick={() => setItemizeLiving((v) => !v)}
+              title="Break living expenses into categories, right in the flow"
+              className={cls(
+                'flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors',
+                itemizeLiving
+                  ? 'border-violet-200 bg-violet-50 text-violet-700'
+                  : 'border-slate-200 bg-white text-slate-500 hover:text-slate-700',
+              )}
+            >
+              <ListTree size={13} /> Itemized
+            </button>
           </div>
         </div>
         {flowKind === 'month' && monthChecksNote && <p className="mt-1 text-[11px] text-slate-400">{monthChecksNote}</p>}
@@ -942,6 +959,8 @@ export default function Plan() {
             state={plan}
             math={math}
             view={flowKind === 'month' ? { kind: 'month', month: flowMonth } : { kind: flowKind }}
+            itemize={itemizeLiving}
+            onToggleItemize={() => setItemizeLiving((v) => !v)}
           />
         </div>
       </Card>

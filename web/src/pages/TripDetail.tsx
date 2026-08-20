@@ -370,7 +370,7 @@ export default function TripDetail() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold">
-              {trip.emoji} {trip.name}
+              {trip.name}
             </h1>
             <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500">
               <span className="inline-flex items-center gap-1"><MapPin size={13} /> {trip.location ?? 'Somewhere good'}</span>

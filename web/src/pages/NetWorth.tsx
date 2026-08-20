@@ -199,7 +199,7 @@ export default function NetWorth() {
       </div>
 
       {data.accounts.length === 0 ? (
-        <EmptyState emoji="📈" title="Add your accounts to see the full picture">
+        <EmptyState title="Add your accounts to see the full picture">
           Checking, savings, 401(k)s, the car loan — update balances whenever; the trend builds itself.
         </EmptyState>
       ) : (

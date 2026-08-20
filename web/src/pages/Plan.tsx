@@ -1,9 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type React from 'react'
 import { Link } from 'react-router-dom'
-import type { PlanAllocKey, PlanCategory, PlanDeductionType, PlanMath, PlanPerson, PlanState } from '@fold/shared'
-import { PLAN_ALLOC_KEYS, PLAN_DED_TYPES, computePlan, fairness, planId, rebalanceAlloc } from '@fold/shared'
-import { ChevronLeft, ChevronRight, Download, Plus, RefreshCw, X } from 'lucide-react'
+import type { PlanAllocKey, PlanDeductionType, PlanMath, PlanPayPer, PlanPerson, PlanState } from '@fold/shared'
+import {
+  PLAN_ALLOC_KEYS,
+  PLAN_DED_TYPES,
+  PLAN_PAY_FACTOR,
+  PLAN_PAY_LABELS,
+  computePlan,
+  fairness,
+  planAnnualGross,
+  planId,
+  rebalanceAlloc,
+} from '@fold/shared'
+import { ArrowRight, ChevronLeft, ChevronRight, Plus, RefreshCw, X } from 'lucide-react'
 import { api, useApi } from '../api'
 import { currentMonth, fmtMoney, fmtMonth, shiftMonth } from '../format'
 import { Button, Card, EmptyState, cls } from '../ui'
@@ -315,57 +325,108 @@ function PersonPanel({
   person: PlanPerson
   onChange: (next: PlanPerson) => void
 }) {
+  const annual = planAnnualGross(person)
   return (
     <div className="relative overflow-hidden rounded-xl border border-slate-200 p-3.5 pl-4">
       <span className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: memberVar(person.color) }} />
-      <h3 className="mb-2.5 text-sm font-semibold">{person.name}</h3>
-      <NumberField label="Gross annual salary" value={person.gross} onChange={(gross) => onChange({ ...person, gross })} />
+      {person.user_id ? (
+        <h3 className="mb-2.5 text-sm font-semibold">{person.name}</h3>
+      ) : (
+        <div className="mb-2.5">
+          <input
+            value={person.name}
+            aria-label="Partner name"
+            onChange={(e) => onChange({ ...person, name: e.target.value })}
+            className="w-36 rounded-md border border-slate-200 bg-white px-2 py-1 text-sm font-semibold"
+          />
+          <p className="mt-1 text-[10px] text-slate-400">
+            Hasn't signed up yet — when they join with your invite, these numbers follow them automatically.
+          </p>
+        </div>
+      )}
+      <div className="mb-2 grid grid-cols-[1fr_auto_auto] items-center gap-2 text-xs text-slate-500">
+        <span>Gross pay</span>
+        <input
+          type="number"
+          min={0}
+          step={100}
+          value={Number.isFinite(person.gross_amount) ? person.gross_amount : 0}
+          aria-label="Gross pay amount"
+          onChange={(e) => onChange({ ...person, gross_amount: parseFloat(e.target.value) || 0 })}
+          className="w-24 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-right text-sm tabular-nums"
+        />
+        <select
+          value={person.gross_per}
+          aria-label="Pay frequency"
+          onChange={(e) => onChange({ ...person, gross_per: e.target.value as PlanPayPer })}
+          className="rounded-lg border border-slate-200 bg-white px-1.5 py-1.5 text-xs text-slate-600"
+        >
+          {(Object.keys(PLAN_PAY_FACTOR) as PlanPayPer[]).map((per) => (
+            <option key={per} value={per}>
+              {PLAN_PAY_LABELS[per]}
+            </option>
+          ))}
+        </select>
+      </div>
+      {person.gross_per !== 'yr' && (
+        <p className="-mt-1 mb-2 text-right text-[10px] tabular-nums text-slate-400">= {fmt$(annual)} a year</p>
+      )}
       <SliderRow
-        label="401(k) — pre-tax"
+        label="401(k) — pre-tax (0 = none)"
         value={person.k401_pct}
         format={(v) => `${v.toFixed(1)}%`}
         onChange={(k401_pct) => onChange({ ...person, k401_pct })}
       />
       <div className="mt-3 border-t border-slate-100 pt-2.5">
-        <p className="mb-1.5 text-[11px] text-slate-400">Paycheck deductions — name · amount · per · tax treatment</p>
+        <p className="mb-1.5 text-[11px] text-slate-400">Paycheck deductions</p>
         {person.items.map((item, index) => (
-          <div key={item.id} className="mb-1.5 grid grid-cols-[1fr_70px_58px_minmax(0,150px)_22px] items-center gap-1.5">
-            <input
-              value={item.name}
-              placeholder="Name"
-              aria-label="Deduction name"
-              onChange={(e) => {
-                const items = [...person.items]
-                items[index] = { ...item, name: e.target.value }
-                onChange({ ...person, items })
-              }}
-              className="w-full rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs"
-            />
-            <input
-              type="number"
-              min={0}
-              value={item.amt}
-              aria-label="Deduction amount"
-              onChange={(e) => {
-                const items = [...person.items]
-                items[index] = { ...item, amt: parseFloat(e.target.value) || 0 }
-                onChange({ ...person, items })
-              }}
-              className="w-full rounded-md border border-slate-200 bg-white px-1.5 py-1 text-right text-xs tabular-nums"
-            />
-            <select
-              value={item.per}
-              aria-label="Per month or per year"
-              onChange={(e) => {
-                const items = [...person.items]
-                items[index] = { ...item, per: e.target.value as 'mo' | 'yr' }
-                onChange({ ...person, items })
-              }}
-              className="w-full rounded-md border border-slate-200 bg-white px-1 py-1 text-[11px] text-slate-600"
-            >
-              <option value="mo">/ mo</option>
-              <option value="yr">/ yr</option>
-            </select>
+          <div key={item.id} className="mb-2 rounded-lg border border-slate-100 p-1.5">
+            <div className="grid grid-cols-[minmax(0,1fr)_64px_58px_26px] items-center gap-1.5">
+              <input
+                value={item.name}
+                placeholder="Name"
+                aria-label="Deduction name"
+                onChange={(e) => {
+                  const items = [...person.items]
+                  items[index] = { ...item, name: e.target.value }
+                  onChange({ ...person, items })
+                }}
+                className="w-full rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs"
+              />
+              <input
+                type="number"
+                min={0}
+                value={item.amt}
+                aria-label="Deduction amount"
+                onChange={(e) => {
+                  const items = [...person.items]
+                  items[index] = { ...item, amt: parseFloat(e.target.value) || 0 }
+                  onChange({ ...person, items })
+                }}
+                className="w-full rounded-md border border-slate-200 bg-white px-1.5 py-1 text-right text-xs tabular-nums"
+              />
+              <select
+                value={item.per}
+                aria-label="Per month or per year"
+                onChange={(e) => {
+                  const items = [...person.items]
+                  items[index] = { ...item, per: e.target.value as 'mo' | 'yr' }
+                  onChange({ ...person, items })
+                }}
+                className="w-full rounded-md border border-slate-200 bg-white px-1 py-1 text-[11px] text-slate-600"
+              >
+                <option value="mo">/ mo</option>
+                <option value="yr">/ yr</option>
+              </select>
+              <button
+                title="Remove deduction"
+                aria-label={`Remove ${item.name || 'deduction'}`}
+                onClick={() => onChange({ ...person, items: person.items.filter((i) => i.id !== item.id) })}
+                className="justify-self-end rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-500"
+              >
+                <X size={13} />
+              </button>
+            </div>
             <select
               value={item.type}
               aria-label="Tax treatment"
@@ -374,7 +435,7 @@ function PersonPanel({
                 items[index] = { ...item, type: e.target.value as PlanDeductionType }
                 onChange({ ...person, items })
               }}
-              className="w-full min-w-0 rounded-md border border-slate-200 bg-white px-1 py-1 text-[11px] text-slate-600"
+              className="mt-1.5 w-full rounded-md border border-slate-200 bg-white px-1 py-1 text-[11px] text-slate-500"
             >
               {Object.entries(PLAN_DED_TYPES).map(([value, meta]) => (
                 <option key={value} value={value}>
@@ -382,14 +443,6 @@ function PersonPanel({
                 </option>
               ))}
             </select>
-            <button
-              title="Remove"
-              aria-label={`Remove ${item.name || 'deduction'}`}
-              onClick={() => onChange({ ...person, items: person.items.filter((i) => i.id !== item.id) })}
-              className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-500"
-            >
-              <X size={12} />
-            </button>
           </div>
         ))}
         <button
@@ -412,6 +465,11 @@ export default function Plan() {
   const [scenarios, setScenarios] = useState<{ name: string; saved_by: string; saved_at: string }[]>([])
   const [scenarioSel, setScenarioSel] = useState('')
   const [actualMonth, setActualMonth] = useState(currentMonth)
+  // Planning usually happens for the month ahead — default there once past mid-month.
+  const [applyMonth, setApplyMonth] = useState(() =>
+    new Date().getDate() >= 20 ? shiftMonth(currentMonth(), 1) : currentMonth(),
+  )
+  const [applyNote, setApplyNote] = useState<string | null>(null)
   const { data: actuals } = useApi<ActualsResponse>(`/plan/actuals?month=${actualMonth}`)
   const dirtyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const planRef = useRef<PlanState | null>(null)
@@ -475,6 +533,24 @@ export default function Plan() {
     await api.delete(`/plan/scenarios/${encodeURIComponent(scenarioSel)}`)
     setScenarioSel('')
     await refreshScenarios()
+  }
+
+  async function applyToBudget(): Promise<void> {
+    if (!plan) return
+    const label = fmtMonth(applyMonth)
+    if (
+      !confirm(
+        `Write these planned amounts into the real ${label} budget? Matched envelopes get the plan's number (new shared categories are created as needed); everything stays editable on the Budget page.`,
+      )
+    )
+      return
+    const r = await api.post<{ applied: number; created: number }>('/plan/apply', {
+      month: applyMonth,
+      state: plan,
+    })
+    setApplyNote(
+      `${label}: ${r.applied} envelope${r.applied === 1 ? '' : 's'} set${r.created ? `, ${r.created} created` : ''}.`,
+    )
   }
 
   async function pullFromActuals(): Promise<void> {
@@ -604,56 +680,120 @@ export default function Plan() {
       </Card>
 
       <Card>
-        <SectionTitle n={3} title="Taxes" hint="Federal brackets and FICA are automatic (2026 law); you control the filing status, state rate, and deduction." />
+        <SectionTitle
+          n={3}
+          title="Taxes"
+          hint="Automatic uses 2026 federal brackets and FICA; manual lets each of you set your own effective rate."
+        />
+        <div className="mb-3 inline-flex overflow-hidden rounded-xl border border-slate-200 text-xs">
+          <button
+            onClick={() =>
+              update((d) => {
+                d.tax_mode = 'auto'
+              })
+            }
+            className={cls('px-3.5 py-1.5', plan.tax_mode === 'auto' ? 'bg-slate-100 font-semibold text-slate-800' : 'text-slate-500')}
+          >
+            Automatic — 2026 law
+          </button>
+          <button
+            onClick={() =>
+              update((d) => {
+                // Start each manual rate from what the law currently computes.
+                d.people.forEach((person, i) => {
+                  const m = math.people[i]
+                  if (m.gross > 0) person.manual_tax_pct = Math.round(((m.share_tax + m.fica) / m.gross) * 1000) / 10
+                })
+                d.tax_mode = 'manual'
+              })
+            }
+            className={cls('px-3.5 py-1.5', plan.tax_mode === 'manual' ? 'bg-slate-100 font-semibold text-slate-800' : 'text-slate-500')}
+          >
+            Manual rates
+          </button>
+        </div>
         <div className="grid gap-5 md:grid-cols-2">
-          <div>
-            <div className="mb-3 inline-flex overflow-hidden rounded-xl border border-slate-200 text-xs">
-              <button
-                onClick={() => update((d) => { d.filing = 'mfj' })}
-                className={cls('px-3.5 py-1.5', plan.filing === 'mfj' ? 'bg-slate-100 font-semibold text-slate-800' : 'text-slate-500')}
-              >
-                Married filing jointly
-              </button>
-              <button
-                onClick={() => update((d) => { d.filing = 'single' })}
-                className={cls('px-3.5 py-1.5', plan.filing === 'single' ? 'bg-slate-100 font-semibold text-slate-800' : 'text-slate-500')}
-              >
-                Two single filers
-              </button>
+          {plan.tax_mode === 'auto' ? (
+            <div>
+              <div className="mb-3 inline-flex overflow-hidden rounded-xl border border-slate-200 text-xs">
+                <button
+                  onClick={() => update((d) => { d.filing = 'mfj' })}
+                  className={cls('px-3.5 py-1.5', plan.filing === 'mfj' ? 'bg-slate-100 font-semibold text-slate-800' : 'text-slate-500')}
+                >
+                  Married filing jointly
+                </button>
+                <button
+                  onClick={() => update((d) => { d.filing = 'single' })}
+                  className={cls('px-3.5 py-1.5', plan.filing === 'single' ? 'bg-slate-100 font-semibold text-slate-800' : 'text-slate-500')}
+                >
+                  Two single filers
+                </button>
+              </div>
+              <SliderRow
+                label="State income tax"
+                value={plan.state_rate}
+                min={0}
+                max={12}
+                step={0.05}
+                format={(v) => `${v.toFixed(2)}%`}
+                onChange={(v) => update((d) => { d.state_rate = v })}
+              />
+              <NumberField
+                label={plan.filing === 'mfj' ? 'Federal deduction (standard: $32,200)' : 'Federal deduction, couple total (half each)'}
+                value={plan.std_ded}
+                step={100}
+                onChange={(v) => update((d) => { d.std_ded = v })}
+              />
+              <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+                State = one flat rate on federal taxable income — close enough for planning. Drag to 0% for TX, FL, WA,
+                TN. Toggle the filing status to see what marriage does to the bill.
+              </p>
             </div>
-            <SliderRow
-              label="State income tax"
-              value={plan.state_rate}
-              min={0}
-              max={12}
-              step={0.05}
-              format={(v) => `${v.toFixed(2)}%`}
-              onChange={(v) => update((d) => { d.state_rate = v })}
-            />
-            <NumberField
-              label={plan.filing === 'mfj' ? 'Federal deduction (standard: $32,200)' : 'Federal deduction, couple total (½ each)'}
-              value={plan.std_ded}
-              step={100}
-              onChange={(v) => update((d) => { d.std_ded = v })}
-            />
-            <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
-              State = one flat rate on federal taxable income — close enough for planning. Default is Illinois (4.95%);
-              drag to 0% for TX, FL, WA, TN. Toggle the filing status to see what marriage does to the bill.
-            </p>
-          </div>
+          ) : (
+            <div>
+              {([0, 1] as const).map((index) => (
+                <SliderRow
+                  key={index}
+                  label={`${plan.people[index].name} — effective rate`}
+                  value={plan.people[index].manual_tax_pct}
+                  min={0}
+                  max={60}
+                  step={0.5}
+                  format={(v) => `${v.toFixed(1)}%`}
+                  onChange={(v) => update((d) => { d.people[index].manual_tax_pct = v })}
+                />
+              ))}
+              <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+                One flat rate on each person's gross, covering federal + state + FICA together. Switching from
+                Automatic pre-fills the rate the law computes, so tweak from a real starting point — handy for
+                self-employment, extra withholding, or a state the flat-rate model doesn't fit.
+              </p>
+            </div>
+          )}
           <div className="text-xs">
-            {[
-              ['Combined gross', `${fmt$(math.gross)}/yr`, false],
-              ['Pre-tax deductions', `−${fmt$(math.pre)}`, false],
-              ['Federal deduction', `−${fmt$(plan.std_ded)}`, false],
-              ['Federal taxable income', fmt$(math.taxable), false],
-              ['Federal income tax', fmt$(math.fed), false],
-              [`State income tax (${plan.state_rate.toFixed(2)}%)`, fmt$(math.state), false],
-              [`FICA — ${a.name} / ${b.name}`, `${fmt$(math.people[0].fica)} / ${fmt$(math.people[1].fica)}`, false],
-              ...(math.post > 0 ? [['Post-tax deductions', `−${fmt$(math.post)}`, false] as [string, string, boolean]] : []),
-              ['Total tax', `${fmt$(math.tax)}/yr`, true],
-              ['Take-home pool', `${fmt$(math.pool)}/yr`, true],
-            ].map(([label, value, sum], i) => (
+            {(plan.tax_mode === 'manual'
+              ? [
+                  ['Combined gross', `${fmt$(math.gross)}/yr`, false],
+                  [`${a.name} — ${plan.people[0].manual_tax_pct.toFixed(1)}% of ${fmt$(math.people[0].gross)}`, fmt$(math.people[0].share_tax), false],
+                  [`${b.name} — ${plan.people[1].manual_tax_pct.toFixed(1)}% of ${fmt$(math.people[1].gross)}`, fmt$(math.people[1].share_tax), false],
+                  ...(math.pre > 0 ? [['Pre-tax deductions', `−${fmt$(math.pre)}`, false] as [string, string, boolean]] : []),
+                  ...(math.post > 0 ? [['Post-tax deductions', `−${fmt$(math.post)}`, false] as [string, string, boolean]] : []),
+                  ['Total tax', `${fmt$(math.tax)}/yr`, true],
+                  ['Take-home pool', `${fmt$(math.pool)}/yr`, true],
+                ]
+              : [
+                  ['Combined gross', `${fmt$(math.gross)}/yr`, false],
+                  ['Pre-tax deductions', `−${fmt$(math.pre)}`, false],
+                  ['Federal deduction', `−${fmt$(plan.std_ded)}`, false],
+                  ['Federal taxable income', fmt$(math.taxable), false],
+                  ['Federal income tax', fmt$(math.fed), false],
+                  [`State income tax (${plan.state_rate.toFixed(2)}%)`, fmt$(math.state), false],
+                  [`FICA — ${a.name} / ${b.name}`, `${fmt$(math.people[0].fica)} / ${fmt$(math.people[1].fica)}`, false],
+                  ...(math.post > 0 ? [['Post-tax deductions', `−${fmt$(math.post)}`, false] as [string, string, boolean]] : []),
+                  ['Total tax', `${fmt$(math.tax)}/yr`, true],
+                  ['Take-home pool', `${fmt$(math.pool)}/yr`, true],
+                ]
+            ).map(([label, value, sum], i) => (
               <div key={i} className={cls('flex justify-between border-b border-slate-100 py-1.5', sum && 'border-b-0 border-t border-slate-300 font-semibold')}>
                 <span className={cls(sum ? 'text-slate-800' : 'text-slate-500')}>{label}</span>
                 <span className="tabular-nums text-slate-800">{value}</span>
@@ -717,77 +857,114 @@ export default function Plan() {
             <thead>
               <tr className="text-right text-slate-500">
                 <th className="py-1.5 pr-2 text-left font-semibold">Category</th>
-                <th className="py-1.5 pr-2 font-semibold">Monthly $</th>
-                <th className="py-1.5 pr-2 font-semibold">{a.name} funds</th>
-                <th className="py-1.5 pr-2 font-semibold">{b.name} funds</th>
+                <th className="py-1.5 pr-2 text-left font-semibold">Amount</th>
+                <th className="py-1.5 pr-2 font-semibold">{a.name} contribution</th>
+                <th className="py-1.5 pr-2 font-semibold">{b.name} contribution</th>
                 <th className="py-1.5 pl-3 text-left font-semibold">Benefit split</th>
-                <th className="py-1.5 pr-2 font-semibold">{a.name} gets</th>
-                <th className="py-1.5 pr-2 font-semibold">{b.name} gets</th>
+                <th className="py-1.5 pr-2 font-semibold">{a.name} allocation</th>
+                <th className="py-1.5 pr-2 font-semibold">{b.name} allocation</th>
                 <th />
               </tr>
             </thead>
             <tbody>
-              {plan.cats.map((cat, index) => (
-                <tr key={cat.id} className="border-t border-slate-100">
-                  <td className="py-1.5 pr-2">
-                    <input
-                      value={cat.name}
-                      aria-label="Category name"
-                      onChange={(e) => update((d) => { d.cats[index].name = e.target.value })}
-                      className="w-full min-w-36 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs"
-                    />
-                  </td>
-                  <td className="py-1.5 pr-2 text-right">
-                    <input
-                      type="number"
-                      min={0}
-                      step={10}
-                      value={cat.amt}
-                      aria-label={`${cat.name} monthly amount`}
-                      onChange={(e) => update((d) => { d.cats[index].amt = parseFloat(e.target.value) || 0 })}
-                      className="w-20 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-right text-xs tabular-nums"
-                    />
-                  </td>
-                  <td className="py-1.5 pr-2 text-right tabular-nums text-slate-500">{fmt$(cat.amt * math.people[0].share)}</td>
-                  <td className="py-1.5 pr-2 text-right tabular-nums text-slate-500">{fmt$(cat.amt * math.people[1].share)}</td>
-                  <td className="min-w-44 py-1.5 pl-3">
-                    <div className="flex items-center gap-2">
+              {plan.cats.map((cat, index) => {
+                const monthly = math.cat_monthly[index] ?? 0
+                return (
+                  <tr key={cat.id} className="border-t border-slate-100">
+                    <td className="py-1.5 pr-2">
                       <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={5}
-                        value={cat.benefit_a}
-                        aria-label={`${cat.name} percent of benefit to ${a.name}`}
-                        onChange={(e) => update((d) => { d.cats[index].benefit_a = parseFloat(e.target.value) })}
-                        className="flex-1 accent-[var(--color-accent)]"
+                        value={cat.name}
+                        aria-label="Category name"
+                        onChange={(e) => update((d) => { d.cats[index].name = e.target.value })}
+                        className="w-full min-w-32 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs"
                       />
-                      <span className="w-20 whitespace-nowrap text-[10px] text-slate-400">
-                        {cat.benefit_a}% {a.name[0]} · {100 - cat.benefit_a}% {b.name[0]}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex h-1.5 gap-0.5 overflow-hidden rounded-full">
-                      <i style={{ width: `${cat.benefit_a}%`, backgroundColor: colorA }} className="block rounded-sm" />
-                      <i style={{ width: `${100 - cat.benefit_a}%`, backgroundColor: colorB }} className="block rounded-sm" />
-                    </div>
-                  </td>
-                  <td className="py-1.5 pr-2 text-right tabular-nums text-slate-500">{fmt$((cat.amt * cat.benefit_a) / 100)}</td>
-                  <td className="py-1.5 pr-2 text-right tabular-nums text-slate-500">{fmt$((cat.amt * (100 - cat.benefit_a)) / 100)}</td>
-                  <td className="py-1.5 text-right">
-                    <button
-                      title="Remove category"
-                      aria-label={`Remove ${cat.name}`}
-                      onClick={() => update((d) => { d.cats.splice(index, 1) })}
-                      className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-500"
-                    >
-                      <X size={12} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="py-1.5 pr-2">
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={0}
+                          step={cat.mode === 'pct' ? 0.5 : 10}
+                          value={cat.amt}
+                          aria-label={cat.mode === 'pct' ? `${cat.name} percent of take-home` : `${cat.name} monthly amount`}
+                          onChange={(e) => update((d) => { d.cats[index].amt = parseFloat(e.target.value) || 0 })}
+                          className="w-16 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-right text-xs tabular-nums"
+                        />
+                        <span className="inline-flex overflow-hidden rounded-md border border-slate-200">
+                          {(['fixed', 'pct'] as const).map((mode) => (
+                            <button
+                              key={mode}
+                              title={mode === 'fixed' ? 'Fixed dollars per month' : 'Percent of take-home'}
+                              onClick={() =>
+                                update((d) => {
+                                  const target = d.cats[index]
+                                  if (target.mode === mode) return
+                                  // Convert the value so the line's dollars don't jump.
+                                  const currentMonthly = math.cat_monthly[index] ?? 0
+                                  target.mode = mode
+                                  target.amt =
+                                    mode === 'pct'
+                                      ? math.pool_mo > 0
+                                        ? Math.round((currentMonthly / math.pool_mo) * 1000) / 10
+                                        : 0
+                                      : Math.round(currentMonthly)
+                                })
+                              }
+                              className={cls(
+                                'px-1.5 py-0.5 text-[10px] font-semibold',
+                                cat.mode === mode ? 'bg-slate-100 text-slate-700' : 'text-slate-400',
+                              )}
+                            >
+                              {mode === 'fixed' ? '$' : '%'}
+                            </button>
+                          ))}
+                        </span>
+                        {cat.mode === 'pct' && (
+                          <span className="whitespace-nowrap text-[10px] tabular-nums text-slate-400">= {fmt$(monthly)}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-1.5 pr-2 text-right tabular-nums text-slate-500">{fmt$(monthly * math.people[0].share)}</td>
+                    <td className="py-1.5 pr-2 text-right tabular-nums text-slate-500">{fmt$(monthly * math.people[1].share)}</td>
+                    <td className="min-w-44 py-1.5 pl-3">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={5}
+                          value={cat.benefit_a}
+                          aria-label={`${cat.name} percent of benefit to ${a.name}`}
+                          onChange={(e) => update((d) => { d.cats[index].benefit_a = parseFloat(e.target.value) })}
+                          className="flex-1 accent-[var(--color-accent)]"
+                        />
+                        <span className="w-20 whitespace-nowrap text-[10px] text-slate-400">
+                          {cat.benefit_a}% {a.name[0]} · {100 - cat.benefit_a}% {b.name[0]}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex h-1.5 gap-0.5 overflow-hidden rounded-full">
+                        <i style={{ width: `${cat.benefit_a}%`, backgroundColor: colorA }} className="block rounded-sm" />
+                        <i style={{ width: `${100 - cat.benefit_a}%`, backgroundColor: colorB }} className="block rounded-sm" />
+                      </div>
+                    </td>
+                    <td className="py-1.5 pr-2 text-right tabular-nums text-slate-500">{fmt$((monthly * cat.benefit_a) / 100)}</td>
+                    <td className="py-1.5 pr-2 text-right tabular-nums text-slate-500">{fmt$((monthly * (100 - cat.benefit_a)) / 100)}</td>
+                    <td className="py-1.5 text-right">
+                      <button
+                        title="Remove category"
+                        aria-label={`Remove ${cat.name}`}
+                        onClick={() => update((d) => { d.cats.splice(index, 1) })}
+                        className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-500"
+                      >
+                        <X size={13} />
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
               <tr className="border-t border-slate-100 italic text-slate-500">
                 <td className="py-1.5 pr-2">Buffer / not yet assigned</td>
-                <td className={cls('py-1.5 pr-2 text-right tabular-nums', math.buffer < 0 && 'font-semibold not-italic text-red-600')}>{fmt$(math.buffer)}</td>
+                <td className={cls('py-1.5 pr-2 text-left tabular-nums', math.buffer < 0 && 'font-semibold not-italic text-red-600')}>{fmt$(math.buffer)}</td>
                 <td className="py-1.5 pr-2 text-right tabular-nums">{fmt$(math.buffer * math.people[0].share)}</td>
                 <td className="py-1.5 pr-2 text-right tabular-nums">{fmt$(math.buffer * math.people[1].share)}</td>
                 <td className="py-1.5 pl-3 text-left text-slate-400">50 / 50</td>
@@ -797,28 +974,52 @@ export default function Plan() {
               </tr>
               <tr className="border-t border-slate-300 font-semibold">
                 <td className="py-1.5 pr-2">Total (= living bucket)</td>
-                <td className="py-1.5 pr-2 text-right tabular-nums">{fmt$(math.alloc.living)}</td>
+                <td className="py-1.5 pr-2 text-left tabular-nums">{fmt$(math.alloc.living)}</td>
                 <td className="py-1.5 pr-2 text-right tabular-nums">{fmt$(math.alloc.living * math.people[0].share)}</td>
                 <td className="py-1.5 pr-2 text-right tabular-nums">{fmt$(math.alloc.living * math.people[1].share)}</td>
                 <td />
                 <td className="py-1.5 pr-2 text-right tabular-nums">
-                  {fmt$(plan.cats.reduce((sum, c) => sum + (c.amt * c.benefit_a) / 100, 0) + math.buffer / 2)}
+                  {fmt$(plan.cats.reduce((sum, c, i) => sum + ((math.cat_monthly[i] ?? 0) * c.benefit_a) / 100, 0) + math.buffer / 2)}
                 </td>
                 <td className="py-1.5 pr-2 text-right tabular-nums">
-                  {fmt$(plan.cats.reduce((sum, c) => sum + (c.amt * (100 - c.benefit_a)) / 100, 0) + math.buffer / 2)}
+                  {fmt$(plan.cats.reduce((sum, c, i) => sum + ((math.cat_monthly[i] ?? 0) * (100 - c.benefit_a)) / 100, 0) + math.buffer / 2)}
                 </td>
                 <td />
               </tr>
             </tbody>
           </table>
         </div>
-        <button
-          onClick={() => update((d) => { d.cats.push({ id: planId(), name: '', amt: 0, benefit_a: 50 }) })}
-          className="mt-2.5 rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-xs text-slate-500 hover:border-slate-400 hover:text-slate-700"
-        >
-          <Plus size={11} className="mr-1 inline" />
-          Add category
-        </button>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => update((d) => { d.cats.push({ id: planId(), name: '', mode: 'fixed', amt: 0, benefit_a: 50 }) })}
+            className="rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-xs text-slate-500 hover:border-slate-400 hover:text-slate-700"
+          >
+            <Plus size={11} className="mr-1 inline" />
+            Add category
+          </button>
+          <span className="inline-flex items-center gap-1.5">
+            <Button variant="secondary" onClick={() => void applyToBudget()}>
+              Apply to budget <ArrowRight size={13} />
+            </Button>
+            <select
+              value={applyMonth}
+              aria-label="Which month to apply the plan to"
+              onChange={(e) => setApplyMonth(e.target.value)}
+              className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+            >
+              {[currentMonth(), shiftMonth(currentMonth(), 1), shiftMonth(currentMonth(), 2)].map((m) => (
+                <option key={m} value={m}>
+                  {fmtMonth(m)}
+                </option>
+              ))}
+            </select>
+          </span>
+          {applyNote && (
+            <span className="text-xs font-medium text-emerald-600">
+              {applyNote} <Link to="/budget" className="underline">Open the budget</Link>
+            </span>
+          )}
+        </div>
       </Card>
 
       <Card>
@@ -839,7 +1040,7 @@ export default function Plan() {
           </div>
         </div>
         {!actuals || !actualRows ? null : actuals.by_category.length === 0 && plan.cats.length === 0 ? (
-          <EmptyState emoji="📭" title={`Nothing tracked in ${fmtMonth(actualMonth)}`}>
+          <EmptyState title={`Nothing tracked in ${fmtMonth(actualMonth)}`}>
             Add or <Link to="/transactions" className="underline">import</Link> spending and the plan gets its mirror.
           </EmptyState>
         ) : (
@@ -864,19 +1065,20 @@ export default function Plan() {
                 </thead>
                 <tbody>
                   {actualRows.rows
-                    .filter((row) => row.cat.amt > 0 || row.actual != null)
+                    .map((row, i) => ({ ...row, planned: math.cat_monthly[i] ?? 0 }))
+                    .filter((row) => row.planned > 0 || row.actual != null)
                     .map((row) => {
                       const spent = row.actual ?? 0
                       const runRate = isCurrentMonth && elapsedPct > 0 ? spent / elapsedPct : spent
                       // Red means actually over the plan — never just a scary
                       // extrapolation of a fixed bill that was paid on the 1st.
-                      const over = spent > row.cat.amt && row.cat.amt > 0
-                      const paidExactly = row.actual != null && row.cat.amt > 0 && Math.abs(spent - row.cat.amt) < 1
-                      const pct = row.cat.amt > 0 ? Math.min(100, (spent / row.cat.amt) * 100) : spent > 0 ? 100 : 0
+                      const over = spent > row.planned && row.planned > 0
+                      const paidExactly = row.actual != null && row.planned > 0 && Math.abs(spent - row.planned) < 1
+                      const pct = row.planned > 0 ? Math.min(100, (spent / row.planned) * 100) : spent > 0 ? 100 : 0
                       return (
                         <tr key={row.cat.id} className="border-t border-slate-100">
                           <td className="py-2 pr-2">{row.cat.name || <span className="text-slate-300">unnamed</span>}</td>
-                          <td className="py-2 pr-2 text-right tabular-nums text-slate-500">{fmt$(row.cat.amt)}</td>
+                          <td className="py-2 pr-2 text-right tabular-nums text-slate-500">{fmt$(row.planned)}</td>
                           <td className="py-2 pr-2 text-right font-semibold tabular-nums">{row.actual == null ? '—' : fmt$(spent)}</td>
                           <td className="py-2 pl-3">
                             <div className="relative h-2 overflow-hidden rounded-full bg-slate-100">
@@ -1039,9 +1241,7 @@ export default function Plan() {
         $32,200 / single $16,100). FICA = 6.2% Social Security up to the $184,500 wage base + 1.45% Medicare, per person;
         medical/dental/vision and HSA/FSA lines reduce FICA wages, 401(k) and other pre-tax don't, post-tax lines reduce
         nothing. State tax = one flat rate on federal taxable income. No credits, surtaxes, or local taxes — built for
-        planning conversations, not filing.{' '}
-        <Download size={11} className="inline text-slate-300" /> Your data stays on your server; scenarios are snapshots
-        of this whole page.
+        planning conversations, not filing. Your data stays on your server; scenarios are snapshots of this whole page.
       </p>
     </div>
   )

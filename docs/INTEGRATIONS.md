@@ -1,16 +1,16 @@
 # Integrations
 
-How The Fold connects to everything else you run. Each section says **what you get**, **how it's wired**, and **what it takes to set up**. Status legend: ✅ live today · 🔜 designed, next up · 💡 planned.
+How The Fold connects to everything else you run. Each section says **what you get**, **how it's wired**, and **what it takes to set up**. Status legend: [shipped] live today · designed, next up · planned.
 
 ---
 
-## 📅 Google Calendar — one-way feed ✅
+## Google Calendar — one-way feed [shipped]
 
 **What you get:** trips, trip stops, and dated list items on both of your Google calendars, updating automatically. Zero Google setup.
 
 **How:** The Fold serves a standard iCal feed at a secret URL (Settings → Calendar feed). In Google Calendar: *Other calendars → + → From URL*, paste, done — repeat on your partner's account, or add it to an existing shared calendar's account. Google refreshes subscribed feeds every few hours (that's a Google-side limit; fine for trips and due dates).
 
-## 🔁 Google Calendar & Tasks — two-way 🔜
+## Google Calendar & Tasks — two-way 
 
 **What you get:** "Create calendar event" from any trip/list item onto a real **shared Google calendar** (instant, editable, with reminders — Google then handles notifications on your phones); assigned to-dos mirrored into each person's **Google Tasks**; and task/event edits syncing back.
 
@@ -24,7 +24,7 @@ How The Fold connects to everything else you run. Each section says **what you g
 
 Scopes will be the narrow ones: `calendar.events` + `calendar.calendarlist.readonly`, `tasks`, and `gmail.send` only if the email driver uses Gmail.
 
-## 📬 Email reminders & digests 🔜
+## Email reminders & digests 
 
 **What you get:** a weekly "state of the household" digest (budget burn, who owes whom, upcoming trip costs, overdue chores) and nudge emails ("rent hits in 3 days", "you're $40 from the Dining Out cap"), sent to both of you.
 
@@ -35,7 +35,7 @@ Scopes will be the narrow ones: `calendar.events` + `calendar.calendarlist.reado
 
 Implementation is a plain SMTP client + a cron loop in the server (it's already a long-running process); no external email SaaS needed on a self-hosted box.
 
-## 🏦 Bank & transaction sync (the Mint part) 🔜
+## Bank & transaction sync (the Mint part) 
 
 Real talk about pulling live financial data as a self-hoster in the US:
 
@@ -44,17 +44,17 @@ Real talk about pulling live financial data as a self-hoster in the US:
 | **SimpleFIN Bridge** | ~$1.50/mo | **Best first choice.** Built exactly for personal self-hosted apps: you connect your banks to SimpleFIN once, it hands The Fold a read-only access URL, the app polls transactions + balances (including investment account balances). No developer agreements, no OAuth dance per bank. Actual Budget & friends use this. |
 | **Plaid** | Free sandbox; production requires an approved developer account (pay-as-you-go) | The polished aggregator Mint used. Doable for personal use but you're signing up as a "company," and per-connection pricing adds up. Worth it later if SimpleFIN's coverage misses one of your institutions. |
 | **Teller** | Free tier (~100 accounts) | Good US coverage, developer-friendly; certificate-auth API. Solid alternate. |
-| **CSV import** ✅ | free | **Live today** on the Spending page: column mapping, sign-convention handling, auto-rules, duplicate skipping. OFX support later. |
+| **CSV import** [shipped] | free | **Live today** on the Spending page: column mapping, sign-convention handling, auto-rules, duplicate skipping. OFX support later. |
 
 **Design either way:** an `accounts` + `imported_transactions` staging table; a matching screen where imported rows become real transactions (pick category, pick split — or auto-rules like "Costco → Groceries, 50/50"). Imports never bypass the split engine, so who-owes-whom stays correct. Your manual entries and bank data reconcile instead of duplicating.
 
-## 📈 Investments & net worth ✅ (manual) / 🔜 (auto)
+## Investments & net worth [shipped] (manual) / (auto)
 
 **Live today:** the Net worth page tracks accounts — checking, savings, brokerage, retirement, property, vehicles, credit cards, loans — joint or per-person, with dated balance snapshots and a household net-worth trend line. Updating a balance takes two seconds and builds the history.
 
 **Next:** SimpleFIN balance auto-snapshots (it returns investment account balances too) and optional ticker prices to break holdings out. Kept intentionally simple — this is "see our full picture," not a trading terminal.
 
-## 🏡 Home Assistant ✅
+## Home Assistant [shipped]
 
 Both directions are live:
 
@@ -65,7 +65,7 @@ Both directions are live:
   - `GET /api/hooks/summary` — open item count, next trip, who-owes-whom
   Tokens can do exactly that and nothing else — no budget or account access.
 
-## 🎬 Date night: Plex + Overseerr + Tandoor (+ Shy Local) 💡
+## Date night: Plex + Overseerr + Tandoor (+ Shy Local) 
 
 The one-button evening you described, as a concrete flow the modules already support:
 
@@ -79,7 +79,7 @@ Every arrow in that flow is an existing, documented API on software you already 
 
 > Note on "Pandora recipes": assuming that's **Tandoor** (the popular self-hosted recipe manager) — if it's something else, the pattern holds as long as it has any HTTP API; the adapter just changes shape.
 
-## 💞 Shy Local 💡
+## Shy Local 
 
 Since you're building it: the cleanest integration is a mutual mini-API — Shy Local exposes date/activity ideas; The Fold exposes `POST /api/trips` (status `idea`) and list items. Then ideas you save there appear on the wishlist here, and planning one promotes it to a dated, budgeted plan with calendar presence. Happy to define that contract as a one-page spec when you're ready.
 

@@ -315,7 +315,7 @@ export default function Budget() {
                 onClick={() => setMoveTarget(row)}
                 className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
               >
-                {row.emoji} {row.name} · {fmtMoney(row.available_cents)}
+                {row.name} · {fmtMoney(row.available_cents)}
               </button>
             ))}
           </div>
@@ -323,7 +323,7 @@ export default function Budget() {
       )}
 
       {!data.has_allocations && (
-        <EmptyState emoji="🪺" title={`No budget set for ${fmtMonth(month)} yet`}>
+        <EmptyState title={`No budget set for ${fmtMonth(month)} yet`}>
           {data.prev_month_has_allocations ? (
             <span>
               Copy last month to get going, or use Auto-fill above — then tweak any envelope inline.

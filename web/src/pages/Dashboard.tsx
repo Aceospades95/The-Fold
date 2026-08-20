@@ -212,7 +212,7 @@ export default function Dashboard() {
               </div>
             </div>
           ) : (
-            <p className="text-sm text-slate-500">✨ You’re all squared up.</p>
+            <p className="text-sm text-slate-500">You’re all squared up.</p>
           )}
         </Card>
 
@@ -255,7 +255,7 @@ export default function Dashboard() {
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="font-semibold">
-                    {data.next_trip.emoji} {data.next_trip.name}
+                    {data.next_trip.name}
                   </p>
                   <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
                     <MapPin size={12} />
@@ -291,7 +291,7 @@ export default function Dashboard() {
             On my plate
           </CardTitle>
           {data.my_tasks.length === 0 ? (
-            <p className="text-sm text-slate-500">Nothing assigned to you. Enjoy it while it lasts. 🙌</p>
+            <p className="text-sm text-slate-500">Nothing assigned to you. Enjoy it while it lasts.</p>
           ) : (
             <ul className="space-y-2">
               {data.my_tasks.map((task) => (
@@ -320,7 +320,7 @@ export default function Dashboard() {
             Recent spending
           </CardTitle>
           {data.recent_transactions.length === 0 ? (
-            <EmptyState emoji="🧾" title="No spending yet">Add your first expense on the Spending page.</EmptyState>
+            <EmptyState title="No spending yet">Add your first expense on the Spending page.</EmptyState>
           ) : (
             <ul className="divide-y divide-slate-100">
               {data.recent_transactions.map((tx) => {

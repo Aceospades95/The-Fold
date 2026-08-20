@@ -131,6 +131,105 @@ describe('profile edits', () => {
     expect(collision.statusCode).toBe(400)
     expect(collision.json().error).toContain('already in use')
   })
+
+  it('changes member colors within the palette, no duplicates in a household', async () => {
+    const { cookie, cookieB } = await createLinkedHousehold(app, ['Jake', 'Sam'], 'color.dev')
+
+    // Join-order defaults: violet for the first member, sky for the second.
+    const before = (await app.inject({ method: 'GET', url: '/api/me', cookies: cookieB })).json()
+    expect(before.user.color).toBe('#0ea5e9')
+
+    const repaint = await app.inject({
+      method: 'PATCH',
+      url: '/api/auth/profile',
+      cookies: cookie,
+      payload: { color: '#f43f5e' },
+    })
+    expect(repaint.statusCode).toBe(200)
+    const me = (await app.inject({ method: 'GET', url: '/api/me', cookies: cookie })).json()
+    expect(me.user.color).toBe('#f43f5e')
+
+    // Arbitrary hexes are refused — every palette color has a dark-mode twin.
+    const offPalette = await app.inject({
+      method: 'PATCH',
+      url: '/api/auth/profile',
+      cookies: cookie,
+      payload: { color: '#123456' },
+    })
+    expect(offPalette.statusCode).toBe(400)
+
+    // The partner cannot grab the same color.
+    const clash = await app.inject({
+      method: 'PATCH',
+      url: '/api/auth/profile',
+      cookies: cookieB,
+      payload: { color: '#f43f5e' },
+    })
+    expect(clash.statusCode).toBe(400)
+    expect(clash.json().error).toContain('already uses')
+
+    const free = await app.inject({
+      method: 'PATCH',
+      url: '/api/auth/profile',
+      cookies: cookieB,
+      payload: { color: '#14b8a6' },
+    })
+    expect(free.statusCode).toBe(200)
+
+    // The plan mirrors member colors on the next read.
+    const plan = (await app.inject({ method: 'GET', url: '/api/plan', cookies: cookie })).json()
+    const colors = plan.state.people.map((p: { color: string }) => p.color)
+    expect(colors).toContain('#f43f5e')
+    expect(colors).toContain('#14b8a6')
+  })
+})
+
+describe('admin password reset', () => {
+  it('issues a one-time password, kills old sessions, and gates on admin', async () => {
+    const { cookie, cookieB, aId, bId } = await createLinkedHousehold(app, ['Jake', 'Sam'], 'reset.dev')
+
+    const notAdmin = await app.inject({
+      method: 'POST',
+      url: '/api/instance/reset-password',
+      cookies: cookieB,
+      payload: { user_id: aId },
+    })
+    expect(notAdmin.statusCode).toBe(403)
+
+    const self = await app.inject({
+      method: 'POST',
+      url: '/api/instance/reset-password',
+      cookies: cookie,
+      payload: { user_id: aId },
+    })
+    expect(self.statusCode).toBe(400)
+
+    const reset = (
+      await app.inject({
+        method: 'POST',
+        url: '/api/instance/reset-password',
+        cookies: cookie,
+        payload: { user_id: bId },
+      })
+    ).json()
+    expect(reset.temp_password.length).toBeGreaterThanOrEqual(6)
+
+    // Sam's old password and old session are both dead; the temp one works.
+    const oldLogin = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: 'sam@reset.dev', password: 'secret1' },
+    })
+    expect(oldLogin.statusCode).toBe(401)
+    const oldSession = await app.inject({ method: 'GET', url: '/api/me', cookies: cookieB })
+    expect(oldSession.statusCode).toBe(401)
+    const tempLogin = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: 'sam@reset.dev', password: reset.temp_password },
+    })
+    expect(tempLogin.statusCode).toBe(200)
+  })
 })
 
 describe('data export', () => {
@@ -188,6 +287,23 @@ describe('data export', () => {
     expect(lines[1]).toContain('"Costco, with ""quotes"""')
     expect(lines[1]).toContain('Groceries')
     expect(lines[1]).toContain('Jake 50.00; Sam 50.00')
+  })
+
+  it('carries the plan, scenarios, and import profiles in the JSON export', async () => {
+    const { cookie } = await createLinkedHousehold(app, ['Jake', 'Sam'], 'planexp.dev')
+    const planR = (await app.inject({ method: 'GET', url: '/api/plan', cookies: cookie })).json()
+    await app.inject({ method: 'PUT', url: '/api/plan', cookies: cookie, payload: { state: planR.state } })
+    await app.inject({
+      method: 'POST',
+      url: '/api/plan/scenarios',
+      cookies: cookie,
+      payload: { name: 'Keeper', state: planR.state },
+    })
+    const dump = (await app.inject({ method: 'GET', url: '/api/export/full.json', cookies: cookie })).json()
+    expect(dump.plan.state.v).toBe(2)
+    expect(dump.plan_scenarios).toHaveLength(1)
+    expect(dump.plan_scenarios[0].name).toBe('Keeper')
+    expect(Array.isArray(dump.import_profiles)).toBe(true)
   })
 
   it('lets only the admin download the raw backup', async () => {

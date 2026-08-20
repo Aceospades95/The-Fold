@@ -58,7 +58,7 @@ export function MoveMoneyModal({
             <option value="">Unassigned income (add new money)</option>
             {donors.map((category) => (
               <option key={category.id} value={category.id}>
-                {category.emoji} {category.name} — {fmtMoney(category.available_cents)} available
+                {category.name} — {fmtMoney(category.available_cents)} available
               </option>
             ))}
           </Select>
@@ -67,7 +67,7 @@ export function MoveMoneyModal({
           <Select value={toId} onChange={(e) => setToId(e.target.value)}>
             {budget.categories.map((category) => (
               <option key={category.id} value={category.id}>
-                {category.emoji} {category.name}
+                {category.name}
               </option>
             ))}
           </Select>
@@ -106,7 +106,6 @@ export function NewCategoryModal({
 }) {
   const { me } = useMe()
   const [name, setName] = useState('')
-  const [emoji, setEmoji] = useState('')
   const [scope, setScope] = useState<'shared' | 'personal'>(defaultScope)
   const [owner, setOwner] = useState(defaultOwner ?? me.user.id)
   const [groupId, setGroupId] = useState(defaultGroupId ?? '')
@@ -119,7 +118,7 @@ export function NewCategoryModal({
     try {
       await api.post('/categories', {
         name: name.trim(),
-        emoji: emoji || null,
+        emoji: null,
         scope,
         owner_user_id: scope === 'personal' ? owner : null,
         group_id: scope === 'shared' ? groupId || null : null,
@@ -137,14 +136,9 @@ export function NewCategoryModal({
   return (
     <Modal title="New category" onClose={onClose}>
       <div className="space-y-4">
-        <div className="grid grid-cols-[1fr_5rem] gap-3">
-          <Field label="Name">
-            <TextInput value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="Pet stuff, Gifts…" />
-          </Field>
-          <Field label="Emoji">
-            <TextInput value={emoji} onChange={(e) => setEmoji(e.target.value)} placeholder="🐕" />
-          </Field>
-        </div>
+        <Field label="Name">
+          <TextInput value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="Pet stuff, Gifts…" />
+        </Field>
         <Field label="Type">
           <Select value={scope} onChange={(e) => setScope(e.target.value as 'shared' | 'personal')}>
             <option value="shared">Shared — funded by both of you</option>
@@ -167,7 +161,7 @@ export function NewCategoryModal({
               <option value="">No group</option>
               {groups.map((group) => (
                 <option key={group.id} value={group.id}>
-                  {group.emoji} {group.name}
+                  {group.name}
                 </option>
               ))}
             </Select>
@@ -216,12 +210,11 @@ export function NewCategoryModal({
 
 export function NewGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState('')
-  const [emoji, setEmoji] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   async function save(): Promise<void> {
     try {
-      await api.post('/category-groups', { name: name.trim(), emoji: emoji || null })
+      await api.post('/category-groups', { name: name.trim(), emoji: null })
       onSaved()
     } catch (err) {
       setError((err as Error).message)
@@ -232,14 +225,9 @@ export function NewGroupModal({ onClose, onSaved }: { onClose: () => void; onSav
     <Modal title="New group" onClose={onClose}>
       <div className="space-y-4">
         <p className="text-sm text-slate-600">Groups keep the budget readable — Home, Food, Getting around…</p>
-        <div className="grid grid-cols-[1fr_5rem] gap-3">
-          <Field label="Name">
-            <TextInput value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="Kids, Hobbies…" />
-          </Field>
-          <Field label="Emoji">
-            <TextInput value={emoji} onChange={(e) => setEmoji(e.target.value)} placeholder="🎈" />
-          </Field>
-        </div>
+        <Field label="Name">
+          <TextInput value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="Kids, Hobbies…" />
+        </Field>
         <ErrorNote message={error} />
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>

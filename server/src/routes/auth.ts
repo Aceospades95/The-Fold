@@ -13,6 +13,7 @@ import {
   userForToken,
   verifyPassword,
 } from '../auth.js'
+import { MEMBER_PALETTE } from '@fold/shared'
 import { normalizeInviteCode, redeemInviteCode } from '../lib/merge.js'
 import { MEMBER_COLORS, badRequest, id, now } from '../lib/util.js'
 
@@ -279,6 +280,7 @@ const changePasswordBody = z.object({
 const profileBody = z.object({
   name: z.string().trim().min(1).max(60).optional(),
   email: z.string().trim().email().toLowerCase().optional(),
+  color: z.string().optional(),
 })
 
 export async function privateAuthRoutes(app: FastifyInstance): Promise<void> {
@@ -317,6 +319,16 @@ export async function privateAuthRoutes(app: FastifyInstance): Promise<void> {
     }
     if (body.name) {
       app.db.prepare('UPDATE users SET name = ? WHERE id = ?').run(body.name, req.user.id)
+    }
+    if (body.color) {
+      if (!(MEMBER_PALETTE as readonly string[]).includes(body.color)) {
+        badRequest('Pick a color from the palette.')
+      }
+      const taken = app.db
+        .prepare('SELECT name FROM users WHERE household_id = ? AND id != ? AND color = ?')
+        .get(req.user.household_id, req.user.id, body.color) as { name: string } | undefined
+      if (taken) badRequest(`${taken.name} already uses that color.`)
+      app.db.prepare('UPDATE users SET color = ? WHERE id = ?').run(body.color, req.user.id)
     }
     return { ok: true }
   })

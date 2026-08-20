@@ -68,7 +68,7 @@ function PayYourselfFirst({ data }: { data: BudgetResponse }) {
         <ProgressBar value={putAway} max={target} color="#10b981" />
         <p className="mt-1 text-xs text-slate-500">
           {funded
-            ? 'Savings funded — everything below is guilt-free. 🎉'
+            ? 'Savings funded — everything below is guilt-free.'
             : `Put ${fmtMoney(target - putAway)} more into savings envelopes (Travel, Emergency fund…) to hit this month's goal.`}
         </p>
       </div>
@@ -124,7 +124,7 @@ function Tracker({ data }: { data: BudgetResponse }) {
         <div className="mt-3 flex flex-wrap gap-1.5">
           {top.map((category) => (
             <span key={category.id} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
-              {category.emoji} {category.name} · {fmtMoney(category.spent_cents)}
+              {category.name} · {fmtMoney(category.spent_cents)}
             </span>
           ))}
         </div>

@@ -90,7 +90,7 @@ function StorePicker({
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{merchant.name}</span>
                 {topCategory && (
                   <span className="shrink-0 text-xs text-slate-400">
-                    usually {topCategory.emoji} {topCategory.name}
+                    usually {topCategory.name}
                   </span>
                 )}
               </button>
@@ -141,7 +141,6 @@ export function CategorySelect({
       <optgroup label="Shared">
         {shared.map((c) => (
           <option key={c.id} value={c.id}>
-            {c.emoji ? `${c.emoji} ` : ''}
             {c.name}
           </option>
         ))}
@@ -150,7 +149,6 @@ export function CategorySelect({
         <optgroup key={member.id} label={`${member.name} — personal`}>
           {cats.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.emoji ? `${c.emoji} ` : ''}
               {c.name}
             </option>
           ))}
@@ -323,13 +321,40 @@ export default function TxModal({
   const [busy, setBusy] = useState(false)
 
   const multiLine = lines.length > 1
+  // "Where does this come from" is read straight off the chosen category, so
+  // it can never drift out of sync with the line editor.
+  const primaryCat = categories.find((c) => c.id === lines[0]?.category_id)
+  const scope: 'shared' | string =
+    primaryCat?.scope === 'personal' && primaryCat.owner_user_id ? primaryCat.owner_user_id : 'shared'
+  const scopedCategories = multiLine
+    ? categories
+    : categories.filter((c) =>
+        scope === 'shared' ? c.scope === 'shared' : c.scope === 'personal' && c.owner_user_id === scope,
+      )
+  function pickScope(next: 'shared' | string): void {
+    const first =
+      next === 'shared'
+        ? categories.find((c) => c.scope === 'shared')
+        : categories.find((c) => c.scope === 'personal' && c.owner_user_id === next)
+    setLines([{ category_id: first?.id ?? '', amount_cents: amount }])
+    // Shared splits by the household default; personal charges land on their owner
+    // no matter who paid (settle-up keeps score).
+    setMode(next === 'shared' ? (members.length > 1 ? 'equal' : 'none') : 'by_category')
+  }
   const linesTotal = lines.reduce((sum, line) => sum + (line.amount_cents ?? 0), 0)
   const linesBalanced = !multiLine || (amount != null && linesTotal === amount && lines.every((l) => (l.amount_cents ?? 0) > 0))
-  const splits = computeSplits(amount, mode, payerId, members, custom, {
-    lines,
-    categories,
-    rule: me.household.split_rule,
-  })
+  // A single-line personal expense has an obvious answer to "who owes what":
+  // the owner does, whoever swiped the card.
+  const personalScope = !multiLine && scope !== 'shared' && !!primaryCat
+  const splits = personalScope
+    ? amount != null && amount > 0
+      ? [{ user_id: scope, share_cents: amount }]
+      : null
+    : computeSplits(amount, mode, payerId, members, custom, {
+        lines,
+        categories,
+        rule: me.household.split_rule,
+      })
   const valid = description.trim().length > 0 && amount != null && amount > 0 && splits != null && linesBalanced
 
   /** Keep a single-category line pinned to the total. */
@@ -450,12 +475,55 @@ export default function TxModal({
           />
           This is a refund / credit — money coming back
         </label>
+        {!multiLine && (
+          <Field label="Comes out of">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => pickScope('shared')}
+                className={cls(
+                  'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
+                  scope === 'shared'
+                    ? 'border-violet-600 bg-violet-50 text-violet-700'
+                    : 'border-slate-300 text-slate-600 hover:border-slate-400',
+                )}
+              >
+                Shared budget
+              </button>
+              {members.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => pickScope(m.id)}
+                  className={cls(
+                    'flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
+                    scope === m.id
+                      ? 'border-violet-600 bg-violet-50 text-violet-700'
+                      : 'border-slate-300 text-slate-600 hover:border-slate-400',
+                  )}
+                >
+                  <Avatar name={m.name} color={m.color} size={18} />
+                  {m.id === me.user.id ? 'My personal' : `${m.name.split(' ')[0]}’s personal`}
+                </button>
+              ))}
+            </div>
+          </Field>
+        )}
         <Field label={multiLine ? 'Categories' : 'Category'}>
-          <LineEditor lines={lines} categories={categories} amountCents={amount} onChange={setLines} />
+          <LineEditor lines={lines} categories={scopedCategories} amountCents={amount} onChange={setLines} />
         </Field>
         <Field label="Paid by">
           <PayerPicker value={payerId} onChange={setPayerId} />
         </Field>
+        {personalScope ? (
+          <Field label="Who owes what">
+            <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+              {scope === payerId
+                ? `${members.find((m) => m.id === scope)?.name.split(' ')[0] ?? 'They'} paid for their own thing — nothing to split.`
+                : `This is ${members.find((m) => m.id === scope)?.name.split(' ')[0] ?? 'their'}'s personal expense, so it lands on their side of the settle-up even though ${members.find((m) => m.id === payerId)?.name.split(' ')[0] ?? 'someone else'} paid.`}
+            </p>
+          </Field>
+        ) : (
         <Field label="Who owes what">
           <SplitEditor
             amountCents={amount}
@@ -468,6 +536,7 @@ export default function TxModal({
             context={{ lines, categories, rule: me.household.split_rule }}
           />
         </Field>
+        )}
         <ErrorNote message={error} />
         <div className="flex items-center justify-between pt-1">
           {existing ? (

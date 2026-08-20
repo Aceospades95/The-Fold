@@ -31,13 +31,11 @@ function DeltaChip({ delta, invert = false }: { delta: number; invert?: boolean 
 
 function HighlightList({
   title,
-  emoji,
   tone,
   items,
   suffix,
 }: {
   title: string
-  emoji: string
   tone: 'good' | 'bad' | 'neutral'
   items: ReviewResponse['wins']
   suffix: string
@@ -46,12 +44,11 @@ function HighlightList({
   return (
     <Card>
       <CardTitle>
-        {emoji} {title} <span className="font-normal normal-case text-slate-400">— {suffix}</span>
+        {title} <span className="font-normal normal-case text-slate-400">— {suffix}</span>
       </CardTitle>
       <ul className="space-y-1.5">
         {items.map((item) => (
           <li key={item.category_id} className="flex items-center gap-2 text-sm">
-            <span>{item.emoji ?? '🏷️'}</span>
             <span className="min-w-0 flex-1 truncate">{item.name}</span>
             <span
               className={cls(
@@ -112,7 +109,7 @@ export default function Review() {
       </div>
 
       {!anythingHappened ? (
-        <EmptyState emoji="🗓️" title={`Nothing recorded in ${fmtMonth(data.month)}`}>
+        <EmptyState title={`Nothing recorded in ${fmtMonth(data.month)}`}>
           Once there’s income or spending here, the recap writes itself.
         </EmptyState>
       ) : (
@@ -228,7 +225,6 @@ export default function Review() {
                 {data.top_categories.map((c) => (
                   <li key={c.category_id} className="text-sm">
                     <div className="flex items-center gap-2">
-                      <span>{c.emoji ?? '🏷️'}</span>
                       <span className="min-w-0 flex-1 truncate">{c.name}</span>
                       <span className="font-semibold tabular-nums">{fmtMoney(c.spent_cents)}</span>
                       {c.allocated_cents > 0 && (
@@ -248,9 +244,9 @@ export default function Review() {
           </div>
 
           <div className="grid gap-4 lg:grid-cols-3">
-            <HighlightList title="Came in under" emoji="🎉" tone="good" items={data.wins} suffix="left unspent" />
-            <HighlightList title="Went over" emoji="🚨" tone="bad" items={data.overspent} suffix="over budget" />
-            <HighlightList title="Rolls forward" emoji="🐿️" tone="neutral" items={data.rolled_forward} suffix="into next month" />
+            <HighlightList title="Came in under" tone="good" items={data.wins} suffix="left unspent" />
+            <HighlightList title="Went over" tone="bad" items={data.overspent} suffix="over budget" />
+            <HighlightList title="Rolls forward" tone="neutral" items={data.rolled_forward} suffix="into next month" />
           </div>
 
           {data.biggest_purchases.length > 0 && (

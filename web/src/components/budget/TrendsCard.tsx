@@ -58,7 +58,7 @@ export default function TrendsCard() {
               {topGroups.map((group) => (
                 <li key={group.name} className="flex items-center gap-2 text-sm">
                   <span className="w-28 truncate text-slate-600">
-                    {group.emoji} {group.name}
+                    {group.name}
                   </span>
                   <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
                     <span
@@ -85,7 +85,7 @@ export default function TrendsCard() {
                   return (
                     <li key={mover.id} className="flex items-center gap-2 text-sm">
                       <span className="flex-1 truncate text-slate-600">
-                        {mover.emoji} {mover.name}
+                        {mover.name}
                       </span>
                       <span
                         className={cls(

@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { PlanState } from '@fold/shared'
 import { buildApp } from '../src/app.js'
 import { openDb } from '../src/db.js'
-import { createLinkedHousehold } from './helpers.js'
+import { createLinkedHousehold, signup } from './helpers.js'
 
 let app: FastifyInstance
 let cookie: { fold_session: string }
@@ -75,23 +75,27 @@ afterAll(async () => {
 })
 
 describe('plan bootstrap', () => {
-  it('seeds the plan from real incomes, 401k, and category averages', async () => {
+  it('seeds the plan from real incomes with their true pay rhythm', async () => {
     const r = await get('/api/plan')
     expect(r.bootstrapped).toBe(true)
     const state: PlanState = r.state
     const jake = state.people[0]
-    // 3,500 × 26 = 91,000 gross annual.
-    expect(jake.gross).toBe(91000)
+    // One biweekly source: keep the paycheck view — 3,500 every other week.
+    expect(jake.gross_amount).toBe(3500)
+    expect(jake.gross_per).toBe('biweekly')
     // 210/paycheck 401k = 5,460/yr = 6% of gross.
     expect(jake.k401_pct).toBeCloseTo(6, 1)
+    // Withheld taxes seed the manual rate: 13,000 / 91,000 ≈ 14.3%.
+    expect(jake.manual_tax_pct).toBeCloseTo(14.3, 1)
     // Medical became a §125 item; the tax line was skipped.
     expect(jake.items).toHaveLength(1)
     expect(jake.items[0].type).toBe('s125')
-    expect(state.people[1].gross).toBe(48000)
+    expect(state.people[1]).toMatchObject({ gross_amount: 4000, gross_per: 'mo' })
 
     const groceries = state.cats.find((c) => c.name === 'Groceries')
     expect(groceries).toBeTruthy()
     expect(groceries!.amt).toBe(150) // 450 over 3 months
+    expect(groceries!.mode).toBe('fixed')
     expect(groceries!.fold_category_id).toBeTruthy()
   })
 })
@@ -149,6 +153,72 @@ describe('plan persistence & scenarios', () => {
     expect(del.statusCode).toBe(200)
     list = await get('/api/plan/scenarios')
     expect(list.scenarios).toHaveLength(0)
+  })
+})
+
+describe('partner auto-link', () => {
+  it('a generic partner adopts the real one when they sign up, keeping the modeled numbers', async () => {
+    const solo = await buildApp({ db: openDb(':memory:'), logger: false })
+    try {
+      const jake = await signup(solo, { name: 'Jacob', email: 'jacob@link.dev' })
+      // Model a not-yet-signed-up partner with real numbers.
+      const boot = (await solo.inject({ method: 'GET', url: '/api/plan', cookies: jake.cookie })).json()
+      const state: PlanState = boot.state
+      expect(state.people[1].user_id).toBeNull()
+      state.people[1].name = 'Partner'
+      state.people[1].gross_amount = 2600
+      state.people[1].gross_per = 'biweekly'
+      state.people[1].k401_pct = 4
+      await solo.inject({ method: 'PUT', url: '/api/plan', cookies: jake.cookie, payload: { state } })
+
+      // She signs up with an invite; the plan should claim her automatically.
+      const invite = (await solo.inject({ method: 'POST', url: '/api/invites', cookies: jake.cookie })).json()
+      const sanya = await signup(solo, { name: 'Sanya Lee', email: 'sanya@link.dev', invite_code: invite.code })
+
+      const linked = (await solo.inject({ method: 'GET', url: '/api/plan', cookies: jake.cookie })).json()
+      const partner = linked.state.people[1]
+      expect(partner.user_id).toBe(sanya.userId)
+      expect(partner.name).toBe('Sanya')
+      // The modeled numbers survived the hand-off.
+      expect(partner.gross_amount).toBe(2600)
+      expect(partner.gross_per).toBe('biweekly')
+      expect(partner.k401_pct).toBe(4)
+    } finally {
+      await solo.close()
+    }
+  })
+})
+
+describe('apply plan to budget', () => {
+  it('writes planned amounts into the month’s allocations, creating missing categories', async () => {
+    const { state } = await get('/api/plan')
+    const groceries = state.cats.find((c: { name: string }) => c.name === 'Groceries')
+    groceries.amt = 600
+    groceries.mode = 'fixed'
+    state.cats.push({ id: 'new1', name: 'Date night', mode: 'pct', amt: 5, benefit_a: 50 })
+    await app.inject({ method: 'PUT', url: '/api/plan', cookies: cookie, payload: { state } })
+
+    const result = (
+      await app.inject({ method: 'POST', url: '/api/plan/apply', cookies: cookie, payload: { month } })
+    ).json()
+    expect(result.created).toBe(1)
+    expect(result.applied).toBeGreaterThanOrEqual(2)
+
+    const budget = await get(`/api/budget/${month}`)
+    const g = budget.categories.find((c: { name: string; scope: string }) => c.name === 'Groceries' && c.scope === 'shared')
+    expect(g.allocated_cents).toBe(60000)
+    const dateNight = budget.categories.find((c: { name: string }) => c.name === 'Date night')
+    expect(dateNight).toBeTruthy()
+    expect(dateNight.scope).toBe('shared')
+    // 5% of the pool, in cents.
+    const { computePlan: compute } = await import('@fold/shared')
+    const expected = Math.round(compute(state).pool_mo * 0.05 * 100)
+    expect(dateNight.allocated_cents).toBe(expected)
+
+    // The plan remembered the link it created.
+    const after = await get('/api/plan')
+    const linkedCat = after.state.cats.find((c: { name: string }) => c.name === 'Date night')
+    expect(linkedCat.fold_category_id).toBe(dateNight.id)
   })
 })
 

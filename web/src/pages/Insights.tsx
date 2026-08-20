@@ -730,7 +730,7 @@ function Treemap({ data }: { data: InsightsResponse }) {
                   fill={slotByGroup.get(rect.group) ?? 'var(--viz-other)'}
                   onPointerMove={(e) =>
                     show(e, {
-                      title: `${rect.emoji ?? ''} ${rect.name}`.trim(),
+                      title: rect.name,
                       lines: [
                         { label: rect.group, value: fmtMoney(rect.total) },
                         { label: 'of the window total', value: `${Math.round((rect.total / grand) * 100)}%` },
@@ -741,9 +741,8 @@ function Treemap({ data }: { data: InsightsResponse }) {
                 />
                 {showLabel && (
                   <text x={rect.x + 8} y={rect.y + 18} fontSize="10.5" fontWeight="600" fill="#fff" pointerEvents="none">
-                    {rect.emoji ? `${rect.emoji} ` : ''}
-                    {rect.name.length > (rect.w - (rect.emoji ? 36 : 20)) / 6.5
-                      ? `${rect.name.slice(0, Math.max(3, Math.floor((rect.w - (rect.emoji ? 36 : 20)) / 6.5)))}…`
+                    {rect.name.length > (rect.w - 20) / 6.5
+                      ? `${rect.name.slice(0, Math.max(3, Math.floor((rect.w - 20) / 6.5)))}…`
                       : rect.name}
                   </text>
                 )}
@@ -826,7 +825,6 @@ function SparkGrid({ data }: { data: InsightsResponse }) {
           return (
             <div key={spark.category_id}>
               <p className="truncate text-xs font-medium text-slate-600">
-                {spark.emoji ? `${spark.emoji} ` : ''}
                 {spark.name}
               </p>
               <svg viewBox={`0 0 ${w} ${h}`} className="mt-1 w-full" role="img" aria-label={`${spark.name} monthly spending trend`}>
@@ -882,7 +880,7 @@ export default function Insights() {
       </div>
 
       {empty ? (
-        <EmptyState emoji="🔭" title="Nothing to see yet">
+        <EmptyState title="Nothing to see yet">
           Add or import some spending and this page starts finding your patterns.
         </EmptyState>
       ) : (

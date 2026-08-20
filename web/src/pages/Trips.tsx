@@ -23,7 +23,6 @@ export function TripModal({
   onSaved: (id?: string) => void
 }) {
   const [name, setName] = useState(existing?.name ?? '')
-  const [emoji, setEmoji] = useState(existing?.emoji ?? '')
   const [location, setLocation] = useState(existing?.location ?? '')
   const [status, setStatus] = useState<TripStatus>(existing?.status ?? 'planned')
   const [startDate, setStartDate] = useState(existing?.start_date ?? '')
@@ -37,7 +36,7 @@ export function TripModal({
     setBusy(true)
     const body = {
       name: name.trim(),
-      emoji: emoji || null,
+      emoji: null,
       status,
       location: location || null,
       start_date: startDate || null,
@@ -62,14 +61,9 @@ export function TripModal({
   return (
     <Modal title={existing ? 'Edit trip' : 'Plan a trip'} onClose={onClose}>
       <div className="space-y-4">
-        <div className="grid grid-cols-[1fr_5rem] gap-3">
-          <Field label="Trip name">
-            <TextInput value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="Pacific Coast Highway" />
-          </Field>
-          <Field label="Emoji">
-            <TextInput value={emoji} onChange={(e) => setEmoji(e.target.value)} placeholder="🌊" />
-          </Field>
-        </div>
+        <Field label="Trip name">
+          <TextInput value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="Pacific Coast Highway" />
+        </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Where">
             <TextInput value={location} onChange={(e) => setLocation(e.target.value)} placeholder="California" />
@@ -125,7 +119,7 @@ function TripCard({ trip }: { trip: TripListItem }) {
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="truncate font-semibold">
-              {trip.emoji} {trip.name}
+              {trip.name}
             </p>
             <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
               <MapPin size={12} className="shrink-0" />
@@ -179,7 +173,7 @@ export default function Trips() {
       </div>
 
       {trips.length === 0 && data && (
-        <EmptyState emoji="🗺️" title="No trips yet">
+        <EmptyState title="No trips yet">
           Start with a wishlist idea or plan the whole route — stops, lodging, budget and all.
         </EmptyState>
       )}

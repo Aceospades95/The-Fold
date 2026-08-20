@@ -1,28 +1,25 @@
 import { useEffect, useState } from 'react'
 import type { ListItemRow, ListRow, ListType } from '@fold/shared'
-import { CalendarDays, Link2, Plus, Trash2, UserRound } from 'lucide-react'
+import { Brush, CalendarDays, Link2, List as ListIcon, Plus, ShoppingCart, SquareCheck, Star, Trash2, UserRound } from 'lucide-react'
 import { api, useApi } from '../api'
 import { useMe } from '../App'
 import { fmtDate, fmtMoney } from '../format'
 import { Avatar, Button, Card, ErrorNote, Field, Modal, MoneyInput, Select, TextInput, cls } from '../ui'
 
-const TYPE_EMOJI: Record<ListType, string> = {
-  todo: '✅',
-  chores: '🧹',
-  grocery: '🛒',
-  wishlist: '🌟',
-  custom: '📋',
+function TypeIcon({ type, size = 15 }: { type: ListType; size?: number }) {
+  const Icon =
+    type === 'todo' ? SquareCheck : type === 'chores' ? Brush : type === 'grocery' ? ShoppingCart : type === 'wishlist' ? Star : ListIcon
+  return <Icon size={size} className="shrink-0 text-slate-400" />
 }
 
 function NewListModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState('')
   const [type, setType] = useState<ListType>('todo')
-  const [emoji, setEmoji] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   async function save(): Promise<void> {
     try {
-      await api.post('/lists', { name: name.trim(), type, emoji: emoji || TYPE_EMOJI[type] })
+      await api.post('/lists', { name: name.trim(), type, emoji: null })
       onSaved()
     } catch (err) {
       setError((err as Error).message)
@@ -32,14 +29,9 @@ function NewListModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   return (
     <Modal title="New list" onClose={onClose}>
       <div className="space-y-4">
-        <div className="grid grid-cols-[1fr_5rem] gap-3">
-          <Field label="Name">
-            <TextInput value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="Weekend projects" />
-          </Field>
-          <Field label="Emoji">
-            <TextInput value={emoji} onChange={(e) => setEmoji(e.target.value)} placeholder={TYPE_EMOJI[type]} />
-          </Field>
-        </div>
+        <Field label="Name">
+          <TextInput value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="Weekend projects" />
+        </Field>
         <Field label="Kind" hint="Wishlist items get a price field so you can dream responsibly.">
           <Select value={type} onChange={(e) => setType(e.target.value as ListType)}>
             <option value="todo">To-dos</option>
@@ -221,7 +213,7 @@ export default function Lists() {
                     : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300',
                 )}
               >
-                <span>{list.emoji ?? TYPE_EMOJI[list.type]}</span>
+                <TypeIcon type={list.type} />
                 <span className="flex-1 truncate">{list.name}</span>
                 <span className={cls('rounded-full px-1.5 text-xs', selected?.id === list.id ? 'bg-violet-200/70' : 'bg-slate-100')}>
                   {open}
@@ -235,7 +227,7 @@ export default function Lists() {
           <Card>
             <div className="mb-3 flex items-center justify-between gap-2">
               <h2 className="font-semibold">
-                {selected.emoji ?? TYPE_EMOJI[selected.type]} {selected.name}
+                {selected.name}
                 {isWishlist && wishlistTotal > 0 && (
                   <span className="ml-2 text-sm font-normal text-slate-500">{fmtMoney(wishlistTotal)} to dream about</span>
                 )}

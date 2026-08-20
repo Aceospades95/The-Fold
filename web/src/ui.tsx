@@ -1,4 +1,4 @@
-import { X } from 'lucide-react'
+import { Inbox, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { fmtMoney, parseMoney } from './format'
 
@@ -209,13 +209,26 @@ export function Chip({ children, className }: { children: ReactNode; className?:
   )
 }
 
-export function EmptyState({ emoji, title, children }: { emoji: string; title: string; children?: ReactNode }) {
+export function EmptyState({ icon, title, children }: { icon?: ReactNode; title: string; children?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 px-6 py-10 text-center">
-      <span className="text-3xl">{emoji}</span>
+    <div className="flex flex-col items-center gap-2.5 rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 px-6 py-10 text-center">
+      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+        {icon ?? <Inbox size={18} />}
+      </span>
       <p className="font-medium text-slate-700">{title}</p>
       {children && <div className="text-sm text-slate-500">{children}</div>}
     </div>
+  )
+}
+
+/** The app mark: a folded sheet on the accent tile. */
+export function Logo({ size = 28 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 512 512" aria-hidden="true" className="shrink-0">
+      <rect width="512" height="512" rx="112" fill="var(--color-accent)" />
+      <path d="M156 118h140l80 80v176a20 20 0 0 1-20 20H156a20 20 0 0 1-20-20V138a20 20 0 0 1 20-20z" fill="#fff" />
+      <path d="M296 118l80 80h-80z" fill="rgba(255,255,255,0.55)" />
+    </svg>
   )
 }
 

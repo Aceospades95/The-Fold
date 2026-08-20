@@ -93,7 +93,7 @@ export default function CategoryDrawer({
   }
 
   return (
-    <Modal title={`${row.emoji ?? '🏷️'} ${row.name}`} onClose={onClose} wide>
+    <Modal title={row.name} onClose={onClose} wide>
       <div className="space-y-4">
         <div className="grid grid-cols-4 gap-2 rounded-xl bg-slate-50 p-3 text-center">
           {[
@@ -197,12 +197,6 @@ export default function CategoryDrawer({
                   onBlur={(e) => e.target.value.trim() && e.target.value !== row.name && void patch({ name: e.target.value.trim() })}
                 />
               </Field>
-              <Field label="Emoji">
-                <TextInput
-                  defaultValue={row.emoji ?? ''}
-                  onBlur={(e) => e.target.value !== (row.emoji ?? '') && void patch({ emoji: e.target.value || null })}
-                />
-              </Field>
             </div>
 
             {row.scope === 'shared' && (
@@ -211,7 +205,7 @@ export default function CategoryDrawer({
                   <option value="">No group</option>
                   {groups.map((group) => (
                     <option key={group.id} value={group.id}>
-                      {group.emoji} {group.name}
+                      {group.name}
                     </option>
                   ))}
                 </Select>

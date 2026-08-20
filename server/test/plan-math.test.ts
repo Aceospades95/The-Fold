@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   PLAN_ALLOC_KEYS,
   type PlanState,
+  checksInMonth,
   computePlan,
   defaultPlanState,
   fairness,
@@ -9,6 +10,7 @@ import {
   migratePlanState,
   planAnnualGross,
   planId,
+  planMonthGross,
   planPerCheck,
   rebalanceAlloc,
 } from '@fold/shared'
@@ -50,6 +52,31 @@ describe('pay types and frequency', () => {
     expect(planPerCheck({ ...p, pay_freq: 'monthly' })).toBeCloseTo(91_000 / 12, 6)
     const hourly = { ...p, pay_type: 'hourly' as const, hourly_rate: 43.75, hours_per_week: 40 }
     expect(planPerCheck({ ...hourly, pay_freq: 'biweekly' })).toBeCloseTo(3500, 6)
+  })
+
+  it('counts paychecks per calendar month from the payday anchor', () => {
+    const p = { ...base().people[0], pay_type: 'salary' as const, salary: 91_000, pay_freq: 'biweekly' as const }
+    // Paydays every other Friday from Sep 4, 2026: Sep 4+18 → 2; Oct 2+16+30 → 3.
+    const anchored = { ...p, next_payday: '2026-09-04' }
+    expect(checksInMonth(anchored, '2026-09')).toBe(2)
+    expect(checksInMonth(anchored, '2026-10')).toBe(3)
+    expect(planMonthGross(anchored, '2026-09')).toBeCloseTo(7000, 6)
+    expect(planMonthGross(anchored, '2026-10')).toBeCloseTo(10500, 6)
+    // The anchor can sit anywhere in the series — a payday later in the month works too.
+    expect(checksInMonth({ ...p, next_payday: '2026-10-16' }, '2026-10')).toBe(3)
+
+    const weekly = { ...p, pay_freq: 'weekly' as const, next_payday: '2026-09-04' }
+    expect(checksInMonth(weekly, '2026-09')).toBe(4)
+    expect(checksInMonth(weekly, '2026-10')).toBe(5)
+
+    expect(checksInMonth({ ...p, pay_freq: 'monthly' }, '2026-09')).toBe(1)
+    expect(checksInMonth({ ...p, pay_freq: 'semimonthly' }, '2026-09')).toBe(2)
+
+    // Whatever the anchor (even none), a year always totals 26 biweekly checks.
+    const months = Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, '0')}`)
+    const anchorless = { ...p, next_payday: null }
+    expect(months.reduce((sum, m) => sum + checksInMonth(anchorless, m), 0)).toBe(26)
+    expect(months.reduce((sum, m) => sum + checksInMonth(anchored, m), 0)).toBe(26)
   })
 
   it('an hourly rate and its salary equivalent produce the same plan', () => {
@@ -169,6 +196,30 @@ describe('rebalanceAlloc', () => {
     alloc = rebalanceAlloc(alloc, 'living', 60)
     expect(PLAN_ALLOC_KEYS.reduce((sum, k) => sum + alloc[k], 0)).toBeCloseTo(100, 6)
     expect(alloc.savings).toBeGreaterThan(0)
+  })
+
+  it('never moves a locked bucket and clamps against it', () => {
+    let alloc = { living: 62, savings: 12, invest: 8, trip: 4, personal: 14 }
+    alloc = rebalanceAlloc(alloc, 'living', 70, ['savings'])
+    expect(alloc.savings).toBe(12)
+    expect(alloc.living).toBeCloseTo(70, 6)
+    expect(PLAN_ALLOC_KEYS.reduce((sum, k) => sum + alloc[k], 0)).toBeCloseTo(100, 6)
+
+    // Locked 12% caps everything else at 88.
+    alloc = rebalanceAlloc(alloc, 'living', 95, ['savings'])
+    expect(alloc.living).toBeCloseTo(88, 6)
+    expect(alloc.savings).toBe(12)
+    expect(PLAN_ALLOC_KEYS.reduce((sum, k) => sum + alloc[k], 0)).toBeCloseTo(100, 6)
+
+    // With every other bucket locked, the changed one just takes the remainder.
+    const pinned = rebalanceAlloc(
+      { living: 50, savings: 20, invest: 10, trip: 10, personal: 10 },
+      'living',
+      80,
+      ['savings', 'invest', 'trip', 'personal'],
+    )
+    expect(pinned.living).toBeCloseTo(50, 6)
+    expect(pinned.savings).toBe(20)
   })
 })
 

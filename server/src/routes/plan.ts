@@ -39,6 +39,7 @@ const personSchema = z.object({
   hourly_rate: z.number().min(0).max(100_000),
   hours_per_week: z.number().min(0).max(168),
   pay_freq: z.enum(['monthly', 'semimonthly', 'biweekly', 'weekly']),
+  next_payday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish().default(null),
   k401_pct: z.number().min(0).max(100),
   manual_tax_pct: z.number().min(0).max(80),
   items: z.array(deductionSchema).max(30),
@@ -58,6 +59,7 @@ const stateSchema = z.object({
     trip: z.number().min(0).max(100),
     personal: z.number().min(0).max(100),
   }),
+  alloc_locked: z.array(z.enum(['living', 'savings', 'invest', 'trip', 'personal'])).max(5).default([]),
   cats: z
     .array(
       z.object({
@@ -158,6 +160,7 @@ function bootstrapPlan(app: FastifyInstance, householdId: string): PlanState {
         hourly_rate: 0,
         hours_per_week: 40,
         pay_freq: 'biweekly' as PlanPayFreq,
+        next_payday: null,
         k401_pct: 0,
         manual_tax_pct: 20,
         items: [],
@@ -203,6 +206,7 @@ function bootstrapPlan(app: FastifyInstance, householdId: string): PlanState {
       hourly_rate: Math.round((salary / 2080) * 100) / 100,
       hours_per_week: 40,
       pay_freq: sources.length === 1 ? CADENCE_TO_FREQ[sources[0].cadence] : ('biweekly' as PlanPayFreq),
+      next_payday: null,
       k401_pct: annualGross > 0 ? Math.round((k401Yearly / annualGross) * 1000) / 10 : 0,
       // Their actual withheld taxes make a solid starting manual rate.
       manual_tax_pct: annualGross > 0 && taxYearly > 0 ? Math.round((taxYearly / annualGross) * 1000) / 10 : 20,
@@ -234,6 +238,7 @@ function bootstrapPlan(app: FastifyInstance, householdId: string): PlanState {
     std_ded: STD_DED_MFJ_2026,
     people,
     alloc: { living: 62, savings: 12, invest: 8, trip: 4, personal: 14 },
+    alloc_locked: [],
     cats: categoryRows.map((row) => ({
       id: planId(),
       name: row.name,

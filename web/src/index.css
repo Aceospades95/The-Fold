@@ -119,6 +119,40 @@
   --color-violet-700: #b45309;
 }
 
+[data-accent='teal'] {
+  --color-accent: #0d9488;
+  --color-violet-50: #f0fdfa;
+  --color-violet-100: #ccfbf1;
+  --color-violet-200: #99f6e4;
+  --color-violet-300: #5eead4;
+  --color-violet-400: #2dd4bf;
+  --color-violet-500: #14b8a6;
+  --color-violet-600: #0d9488;
+  --color-violet-700: #0f766e;
+}
+[data-accent='indigo'] {
+  --color-accent: #4f46e5;
+  --color-violet-50: #eef2ff;
+  --color-violet-100: #e0e7ff;
+  --color-violet-200: #c7d2fe;
+  --color-violet-300: #a5b4fc;
+  --color-violet-400: #818cf8;
+  --color-violet-500: #6366f1;
+  --color-violet-600: #4f46e5;
+  --color-violet-700: #4338ca;
+}
+[data-accent='graphite'] {
+  --color-accent: #475569;
+  --color-violet-50: #f8fafc;
+  --color-violet-100: #f1f5f9;
+  --color-violet-200: #e2e8f0;
+  --color-violet-300: #cbd5e1;
+  --color-violet-400: #94a3b8;
+  --color-violet-500: #64748b;
+  --color-violet-600: #475569;
+  --color-violet-700: #334155;
+}
+
 /* ---------- accent palettes in dark mode ---------- */
 [data-mode='dark'][data-accent='emerald'] {
   --color-accent: #10b981;
@@ -165,6 +199,40 @@
   --color-violet-700: #fbbf24;
 }
 
+[data-mode='dark'][data-accent='teal'] {
+  --color-accent: #14b8a6;
+  --color-violet-50: #0c2925;
+  --color-violet-100: #113732;
+  --color-violet-200: #164c44;
+  --color-violet-300: #1d685c;
+  --color-violet-400: #2dd4bf;
+  --color-violet-500: #14b8a6;
+  --color-violet-600: #0d9488;
+  --color-violet-700: #5eead4;
+}
+[data-mode='dark'][data-accent='indigo'] {
+  --color-accent: #6366f1;
+  --color-violet-50: #1c2040;
+  --color-violet-100: #232a52;
+  --color-violet-200: #2e376b;
+  --color-violet-300: #3b478a;
+  --color-violet-400: #818cf8;
+  --color-violet-500: #6366f1;
+  --color-violet-600: #4f46e5;
+  --color-violet-700: #a5b4fc;
+}
+[data-mode='dark'][data-accent='graphite'] {
+  --color-accent: #64748b;
+  --color-violet-50: #1e2735;
+  --color-violet-100: #253143;
+  --color-violet-200: #303f56;
+  --color-violet-300: #3e516e;
+  --color-violet-400: #94a3b8;
+  --color-violet-500: #64748b;
+  --color-violet-600: #475569;
+  --color-violet-700: #cbd5e1;
+}
+
 /*
  * Chart tokens. Categorical slots are the validated dataviz palette (fixed
  * order — the order is the colorblind-safety mechanism, never re-sort it);
@@ -185,6 +253,10 @@
   --member-10b981: #10b981;
   --member-f59e0b: #f59e0b;
   --member-3b82f6: #3b82f6;
+  --member-0ea5e9: #0ea5e9;
+  --member-14b8a6: #14b8a6;
+  --member-f97316: #f97316;
+  --member-f43f5e: #f43f5e;
 }
 [data-mode='dark'] {
   --viz-1: #3987e5;
@@ -199,6 +271,10 @@
   --member-10b981: #059669;
   --member-f59e0b: #d97706;
   --member-3b82f6: #2563eb;
+  --member-0ea5e9: #0284c7;
+  --member-14b8a6: #0d9488;
+  --member-f97316: #ea580c;
+  --member-f43f5e: #e11d48;
 }
 
 html {

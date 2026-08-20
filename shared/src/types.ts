@@ -14,6 +14,33 @@ export interface PayDeduction {
   kind: DeductionKind
 }
 
+/**
+ * Curated member colors. The web CSS ships a dark-mode variant for each
+ * (--member-<hex>), so pickers must stay inside this list — arbitrary hexes
+ * would wash out on dark cards.
+ */
+export const MEMBER_PALETTE = [
+  '#8b5cf6', // violet
+  '#0ea5e9', // sky
+  '#3b82f6', // blue
+  '#14b8a6', // teal
+  '#10b981', // emerald
+  '#f59e0b', // amber
+  '#f97316', // orange
+  '#f43f5e', // rose
+] as const
+
+export const MEMBER_COLOR_LABELS: Record<string, string> = {
+  '#8b5cf6': 'Violet',
+  '#0ea5e9': 'Sky',
+  '#3b82f6': 'Blue',
+  '#14b8a6': 'Teal',
+  '#10b981': 'Emerald',
+  '#f59e0b': 'Amber',
+  '#f97316': 'Orange',
+  '#f43f5e': 'Rose',
+}
+
 export interface UserPublic {
   id: string
   name: string

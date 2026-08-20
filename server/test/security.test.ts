@@ -131,6 +131,57 @@ describe('profile edits', () => {
     expect(collision.statusCode).toBe(400)
     expect(collision.json().error).toContain('already in use')
   })
+
+  it('changes member colors within the palette, no duplicates in a household', async () => {
+    const { cookie, cookieB } = await createLinkedHousehold(app, ['Jake', 'Sam'], 'color.dev')
+
+    // Join-order defaults: violet for the first member, sky for the second.
+    const before = (await app.inject({ method: 'GET', url: '/api/me', cookies: cookieB })).json()
+    expect(before.user.color).toBe('#0ea5e9')
+
+    const repaint = await app.inject({
+      method: 'PATCH',
+      url: '/api/auth/profile',
+      cookies: cookie,
+      payload: { color: '#f43f5e' },
+    })
+    expect(repaint.statusCode).toBe(200)
+    const me = (await app.inject({ method: 'GET', url: '/api/me', cookies: cookie })).json()
+    expect(me.user.color).toBe('#f43f5e')
+
+    // Arbitrary hexes are refused — every palette color has a dark-mode twin.
+    const offPalette = await app.inject({
+      method: 'PATCH',
+      url: '/api/auth/profile',
+      cookies: cookie,
+      payload: { color: '#123456' },
+    })
+    expect(offPalette.statusCode).toBe(400)
+
+    // The partner cannot grab the same color.
+    const clash = await app.inject({
+      method: 'PATCH',
+      url: '/api/auth/profile',
+      cookies: cookieB,
+      payload: { color: '#f43f5e' },
+    })
+    expect(clash.statusCode).toBe(400)
+    expect(clash.json().error).toContain('already uses')
+
+    const free = await app.inject({
+      method: 'PATCH',
+      url: '/api/auth/profile',
+      cookies: cookieB,
+      payload: { color: '#14b8a6' },
+    })
+    expect(free.statusCode).toBe(200)
+
+    // The plan mirrors member colors on the next read.
+    const plan = (await app.inject({ method: 'GET', url: '/api/plan', cookies: cookie })).json()
+    const colors = plan.state.people.map((p: { color: string }) => p.color)
+    expect(colors).toContain('#f43f5e')
+    expect(colors).toContain('#14b8a6')
+  })
 })
 
 describe('admin password reset', () => {

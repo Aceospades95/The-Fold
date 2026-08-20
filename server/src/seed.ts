@@ -44,7 +44,7 @@ const insertUser = db.prepare(
   'INSERT INTO users (id, household_id, name, email, password_hash, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
 )
 insertUser.run(jake, hhId, 'Jake', 'jake@example.com', hashPassword('thefold'), '#8b5cf6', now())
-insertUser.run(sam, hhId, 'Sam', 'sam@example.com', hashPassword('thefold'), '#10b981', now())
+insertUser.run(sam, hhId, 'Sam', 'sam@example.com', hashPassword('thefold'), '#0ea5e9', now())
 // First account on the instance is the server admin.
 db.prepare('UPDATE users SET is_admin = 1 WHERE id = ?').run(jake)
 

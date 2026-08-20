@@ -4,7 +4,10 @@ export function id(): string {
   return randomUUID()
 }
 
-export const MEMBER_COLORS = ['#8b5cf6', '#10b981', '#f59e0b', '#3b82f6']
+/** Default colors handed out in join order (members can repaint themselves
+ * from the full MEMBER_PALETTE in Settings). Violet then sky — two cool tones
+ * that read as a pair instead of clashing. */
+export const MEMBER_COLORS = ['#8b5cf6', '#0ea5e9', '#f59e0b', '#f43f5e']
 
 export function now(): string {
   return new Date().toISOString()

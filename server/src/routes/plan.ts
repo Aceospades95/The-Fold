@@ -149,7 +149,7 @@ function bootstrapPlan(app: FastifyInstance, householdId: string): PlanState {
       return {
         user_id: null,
         name: index === 0 ? 'You' : 'Partner',
-        color: index === 0 ? '#8b5cf6' : '#10b981',
+        color: index === 0 ? '#8b5cf6' : '#0ea5e9',
         gross_amount: 0,
         gross_per: 'yr' as PlanPayPer,
         k401_pct: 0,

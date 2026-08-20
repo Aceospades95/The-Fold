@@ -10,8 +10,8 @@ import type {
   SplitBasis,
   SplitRule,
 } from '@fold/shared'
-import { CADENCES, METHOD_LABELS, monthlyCents } from '@fold/shared'
-import { Check, Copy, Download, KeyRound, Link2, Moon, Monitor, Pencil, Plus, RefreshCw, ShieldCheck, Sun, Trash2, UserPlus } from 'lucide-react'
+import { CADENCES, MEMBER_COLOR_LABELS, MEMBER_PALETTE, METHOD_LABELS, monthlyCents } from '@fold/shared'
+import { Check, Copy, Download, KeyRound, Link2, Moon, Monitor, Pencil, Plus, RefreshCw, ShieldCheck, Sun, Sunrise, Trash2, UserPlus } from 'lucide-react'
 import { api, useApi } from '../api'
 import { useMe } from '../App'
 import { fmtMoney } from '../format'
@@ -61,6 +61,17 @@ function AccountCard() {
     }
   }
 
+  async function pickColor(color: string): Promise<void> {
+    if (color === me.user.color) return
+    setError(null)
+    try {
+      await api.patch('/auth/profile', { color })
+      await reloadMe()
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
   async function signOutOthers(): Promise<void> {
     const result = await api.post<{ signed_out: number }>('/auth/logout-others')
     sessions.reload()
@@ -86,6 +97,33 @@ function AccountCard() {
         <Button variant="secondary" onClick={() => void saveProfile()} disabled={!name.trim() || !email.trim()}>
           {profileNote ? <Check size={14} /> : null} Save
         </Button>
+      </div>
+
+      <div className="mt-5 border-t border-slate-100 pt-4">
+        <p className="mb-2 text-sm font-semibold text-slate-700">Your color</p>
+        <div className="flex flex-wrap items-center gap-2">
+          {MEMBER_PALETTE.map((color) => {
+            const takenBy = me.household.members.find((m) => m.id !== me.user.id && m.color === color)
+            const selected = me.user.color === color
+            return (
+              <button
+                key={color}
+                title={takenBy ? `${takenBy.name} uses ${MEMBER_COLOR_LABELS[color]}` : MEMBER_COLOR_LABELS[color]}
+                disabled={Boolean(takenBy)}
+                onClick={() => void pickColor(color)}
+                className={cls(
+                  'flex h-8 w-8 items-center justify-center rounded-full transition-transform',
+                  takenBy ? 'cursor-not-allowed opacity-30' : 'hover:scale-110',
+                  selected && 'ring-2 ring-slate-400 ring-offset-2',
+                )}
+                style={{ backgroundColor: color }}
+              >
+                {selected && <Check size={14} className="text-on-accent" />}
+              </button>
+            )
+          })}
+          <p className="ml-1 text-xs text-slate-400">Marks you on charts, splits, and avatars everywhere.</p>
+        </div>
       </div>
 
       <div className="mt-5 border-t border-slate-100 pt-4">
@@ -559,6 +597,7 @@ function AppearanceCard() {
     { value: 'light', label: 'Light', icon: Sun },
     { value: 'dark', label: 'Dark', icon: Moon },
     { value: 'system', label: 'System', icon: Monitor },
+    { value: 'auto', label: 'Auto', icon: Sunrise },
   ]
 
   return (
@@ -584,7 +623,7 @@ function AppearanceCard() {
         </div>
         <div>
           <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Accent</p>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {ACCENTS.map((accent) => (
               <button
                 key={accent.value}
@@ -601,7 +640,11 @@ function AppearanceCard() {
             ))}
           </div>
         </div>
-        <p className="max-w-52 text-xs text-slate-400">Saved on this device — you can each pick your own look.</p>
+        <p className="max-w-52 text-xs text-slate-400">
+          {pref.mode === 'auto'
+            ? 'Auto follows the clock — light through the day, dark from 7pm to 7am.'
+            : 'Saved on this device — you can each pick your own look.'}
+        </p>
       </div>
     </Card>
   )

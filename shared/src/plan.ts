@@ -323,7 +323,7 @@ export function defaultPlanState(): PlanState {
     std_ded: STD_DED_MFJ_2026,
     people: [
       { user_id: null, name: 'You', color: '#8b5cf6', gross_amount: 85000, gross_per: 'yr', k401_pct: 6, manual_tax_pct: 22, items: [] },
-      { user_id: null, name: 'Partner', color: '#10b981', gross_amount: 70000, gross_per: 'yr', k401_pct: 5, manual_tax_pct: 20, items: [] },
+      { user_id: null, name: 'Partner', color: '#0ea5e9', gross_amount: 70000, gross_per: 'yr', k401_pct: 5, manual_tax_pct: 20, items: [] },
     ],
     alloc: { living: 62, savings: 12, invest: 8, trip: 4, personal: 14 },
     cats: [],

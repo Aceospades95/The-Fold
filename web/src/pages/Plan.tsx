@@ -7,14 +7,16 @@ import {
   PLAN_DED_TYPES,
   PLAN_FREQ_FACTOR,
   PLAN_FREQ_LABELS,
+  checksInMonth,
   computePlan,
   fairness,
   planAnnualGross,
   planId,
+  planMonthGross,
   planPerCheck,
   rebalanceAlloc,
 } from '@fold/shared'
-import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Plus, RefreshCw, X } from 'lucide-react'
+import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Lock, LockOpen, Plus, RefreshCw, X } from 'lucide-react'
 import { api, useApi } from '../api'
 import { currentMonth, fmtMoney, fmtMonth, shiftMonth } from '../format'
 import { Button, Card, EmptyState, NumberInput, cls } from '../ui'
@@ -103,7 +105,6 @@ function SliderRow({
   min = 0,
   max = 20,
   step = 0.5,
-  format,
   onChange,
 }: {
   label: string
@@ -111,11 +112,10 @@ function SliderRow({
   min?: number
   max?: number
   step?: number
-  format: (v: number) => string
   onChange: (v: number) => void
 }) {
   return (
-    <div className="mb-2 grid grid-cols-[1fr_150px_58px] items-center gap-2.5 text-xs text-slate-500">
+    <div className="mb-2 grid grid-cols-[1fr_150px_72px] items-center gap-2.5 text-xs text-slate-500">
       <span>{label}</span>
       <input
         type="range"
@@ -127,7 +127,15 @@ function SliderRow({
         className="w-full accent-[var(--color-accent)]"
         aria-label={label}
       />
-      <span className="text-right text-sm font-medium tabular-nums text-slate-700">{format(value)}</span>
+      <span className="flex items-center justify-end gap-0.5">
+        <NumberInput
+          value={Math.round(value * 100) / 100}
+          aria-label={`${label} value`}
+          onValue={(v) => onChange(Math.min(max, Math.max(min, v)))}
+          className="w-12 rounded-md border border-slate-200 bg-white px-1 py-0.5 text-right text-sm font-medium tabular-nums text-slate-700"
+        />
+        <span className="text-xs text-slate-400">%</span>
+      </span>
     </div>
   )
 }
@@ -147,69 +155,94 @@ interface SankeyNode {
   outY?: number
 }
 
-function PlanSankey({ state, math, unit }: { state: PlanState; math: PlanMath; unit: 'mo' | 'yr' }) {
+type FlowView = { kind: 'avg' } | { kind: 'yr' } | { kind: 'month'; month: string }
+
+function PlanSankey({ state, math, view }: { state: PlanState; math: PlanMath; view: FlowView }) {
   const boxRef = useRef<HTMLDivElement>(null)
   const [tip, setTip] = useState<{ x: number; y: number; lines: string[] } | null>(null)
   const [a, b] = state.people
   const colorA = memberVar(a.color)
   const colorB = memberVar(b.color)
-  // Geometry is always monthly; the unit only scales the printed numbers.
-  const k = unit === 'yr' ? 12 : 1
-  const per = unit === 'yr' ? '/ yr' : '/ mo'
+  const per = view.kind === 'yr' ? '/ yr' : view.kind === 'month' ? `· ${fmtMonth(view.month)}` : '/ mo'
 
   const { nodes, links } = useMemo(() => {
     const m = math
+    // Per-person scale: 1 for an average month, 12 for the year, and for a real
+    // month the actual paycheck count — a 3-check month visibly swells.
+    const factor = (index: 0 | 1): number => {
+      if (view.kind === 'yr') return 12
+      if (view.kind === 'avg') return 1
+      const avgMo = m.people[index].gross / 12
+      return avgMo > 0 ? planMonthGross(state.people[index], view.month) / avgMo : 1
+    }
+    const FA = factor(0)
+    const FB = factor(1)
+    const p0 = m.people[0]
+    const p1 = m.people[1]
     const grossMo = m.gross / 12 || 1
-    const healthMo = (m.people[0].health + m.people[1].health) / 12
-    const k401Mo = (m.people[0].k401 + m.people[1].k401) / 12
-    const otherPreMo = m.pre / 12 - healthMo - k401Mo
+    const scaled = (v0: number, v1: number): number => (v0 * FA + v1 * FB) / 12
+
+    const pre = scaled(p0.income_exempt, p1.income_exempt)
+    const tax = scaled(p0.fica + p0.share_tax, p1.fica + p1.share_tax)
+    const post = scaled(p0.post, p1.post)
+    const pool = scaled(p0.contrib, p1.contrib)
+    const k401 = scaled(p0.k401, p1.k401)
+    const health = scaled(p0.health, p1.health)
+    const otherPre = Math.max(0, pre - k401 - health)
+    const fica = scaled(p0.fica, p1.fica)
+    // Federal + state are joint; scale them together by what's left of tax.
+    const fedStateF = m.fed + m.state > 0 ? (tax - fica) / ((m.fed + m.state) / 12) : 0
+    const fed = (m.fed / 12) * fedStateF
+    const st = (m.state / 12) * fedStateF
+    const poolF = m.pool > 0 ? pool / (m.pool / 12) : 0
+
     const col1: SankeyNode[] = [
-      { id: 'A', label: a.name, val: m.people[0].gross / 12, color: colorA },
-      { id: 'B', label: b.name, val: m.people[1].gross / 12, color: colorB },
+      { id: 'A', label: a.name, val: (p0.gross / 12) * FA, color: colorA },
+      { id: 'B', label: b.name, val: (p1.gross / 12) * FB, color: colorB },
     ]
     const col2: SankeyNode[] = [
-      { id: 'PRE', label: 'Pre-tax savings & benefits', val: m.pre / 12, color: FLOW.pre },
-      { id: 'TAX', label: 'Taxes', val: m.tax / 12, color: FLOW.tax },
-      { id: 'POST', label: 'Post-tax deductions', val: m.post / 12, color: FLOW.post },
-      { id: 'POOL', label: 'Take-home pool', val: m.pool / 12, color: FLOW.pool },
+      { id: 'PRE', label: 'Pre-tax savings & benefits', val: pre, color: FLOW.pre },
+      { id: 'TAX', label: 'Taxes', val: tax, color: FLOW.tax },
+      { id: 'POST', label: 'Post-tax deductions', val: post, color: FLOW.post },
+      { id: 'POOL', label: 'Take-home pool', val: pool, color: FLOW.pool },
     ]
     const col3: SankeyNode[] = [
-      { id: 'K401', label: '401(k) retirement', val: k401Mo, color: FLOW.pre },
-      { id: 'HLTH', label: 'Health & benefits', val: healthMo, color: FLOW.pre },
-      { id: 'OPRE', label: 'Other pre-tax', val: otherPreMo, color: FLOW.pre },
-      { id: 'FED', label: 'Federal income tax', val: m.fed / 12, color: FLOW.tax },
-      { id: 'FICA', label: 'FICA payroll tax', val: m.fica / 12, color: FLOW.tax },
-      { id: 'ST', label: 'State income tax', val: m.state / 12, color: FLOW.tax },
-      { id: 'PSTD', label: 'Post-tax lines', val: m.post / 12, color: FLOW.post },
-      { id: 'LIV', label: 'Shared living', val: m.alloc.living, color: FLOW.living },
-      { id: 'SAV', label: 'Savings', val: m.alloc.savings, color: FLOW.savings },
-      { id: 'INV', label: 'Investments', val: m.alloc.invest, color: FLOW.invest },
-      { id: 'TRIP', label: 'Trip fund', val: m.alloc.trip, color: FLOW.trip },
-      { id: 'PA', label: `Personal — ${a.name}`, val: m.personal_a, color: colorA },
-      { id: 'PB', label: `Personal — ${b.name}`, val: m.personal_b, color: colorB },
+      { id: 'K401', label: '401(k) retirement', val: k401, color: FLOW.pre },
+      { id: 'HLTH', label: 'Health & benefits', val: health, color: FLOW.pre },
+      { id: 'OPRE', label: 'Other pre-tax', val: otherPre, color: FLOW.pre },
+      { id: 'FED', label: 'Federal income tax', val: fed, color: FLOW.tax },
+      { id: 'FICA', label: 'FICA payroll tax', val: fica, color: FLOW.tax },
+      { id: 'ST', label: 'State income tax', val: st, color: FLOW.tax },
+      { id: 'PSTD', label: 'Post-tax lines', val: post, color: FLOW.post },
+      { id: 'LIV', label: 'Shared living', val: m.alloc.living * poolF, color: FLOW.living },
+      { id: 'SAV', label: 'Savings', val: m.alloc.savings * poolF, color: FLOW.savings },
+      { id: 'INV', label: 'Investments', val: m.alloc.invest * poolF, color: FLOW.invest },
+      { id: 'TRIP', label: 'Trip fund', val: m.alloc.trip * poolF, color: FLOW.trip },
+      { id: 'PA', label: `Personal — ${a.name}`, val: m.personal_a * poolF, color: colorA },
+      { id: 'PB', label: `Personal — ${b.name}`, val: m.personal_b * poolF, color: colorB },
     ]
-    const rawLinks: [string, string, number, string][] = [
-      ['A', 'PRE', m.people[0].income_exempt / 12, colorA],
-      ['A', 'TAX', (m.people[0].fica + m.people[0].share_tax) / 12, colorA],
-      ['A', 'POST', m.people[0].post / 12, colorA],
-      ['A', 'POOL', m.people[0].contrib / 12, colorA],
-      ['B', 'PRE', m.people[1].income_exempt / 12, colorB],
-      ['B', 'TAX', (m.people[1].fica + m.people[1].share_tax) / 12, colorB],
-      ['B', 'POST', m.people[1].post / 12, colorB],
-      ['B', 'POOL', m.people[1].contrib / 12, colorB],
-      ['PRE', 'K401', k401Mo, FLOW.pre],
-      ['PRE', 'HLTH', healthMo, FLOW.pre],
-      ['PRE', 'OPRE', otherPreMo, FLOW.pre],
-      ['TAX', 'FED', m.fed / 12, FLOW.tax],
-      ['TAX', 'FICA', m.fica / 12, FLOW.tax],
-      ['TAX', 'ST', m.state / 12, FLOW.tax],
-      ['POST', 'PSTD', m.post / 12, FLOW.post],
-      ['POOL', 'LIV', m.alloc.living, FLOW.living],
-      ['POOL', 'SAV', m.alloc.savings, FLOW.savings],
-      ['POOL', 'INV', m.alloc.invest, FLOW.invest],
-      ['POOL', 'TRIP', m.alloc.trip, FLOW.trip],
-      ['POOL', 'PA', m.personal_a, colorA],
-      ['POOL', 'PB', m.personal_b, colorB],
+    const rawLinks: [string, string, number][] = [
+      ['A', 'PRE', (p0.income_exempt / 12) * FA],
+      ['A', 'TAX', ((p0.fica + p0.share_tax) / 12) * FA],
+      ['A', 'POST', (p0.post / 12) * FA],
+      ['A', 'POOL', (p0.contrib / 12) * FA],
+      ['B', 'PRE', (p1.income_exempt / 12) * FB],
+      ['B', 'TAX', ((p1.fica + p1.share_tax) / 12) * FB],
+      ['B', 'POST', (p1.post / 12) * FB],
+      ['B', 'POOL', (p1.contrib / 12) * FB],
+      ['PRE', 'K401', k401],
+      ['PRE', 'HLTH', health],
+      ['PRE', 'OPRE', otherPre],
+      ['TAX', 'FED', fed],
+      ['TAX', 'FICA', fica],
+      ['TAX', 'ST', st],
+      ['POST', 'PSTD', post],
+      ['POOL', 'LIV', m.alloc.living * poolF],
+      ['POOL', 'SAV', m.alloc.savings * poolF],
+      ['POOL', 'INV', m.alloc.invest * poolF],
+      ['POOL', 'TRIP', m.alloc.trip * poolF],
+      ['POOL', 'PA', m.personal_a * poolF],
+      ['POOL', 'PB', m.personal_b * poolF],
     ]
     const H = 520
     const PADY = 20
@@ -232,8 +265,19 @@ function PlanSankey({ state, math, unit }: { state: PlanState; math: PlanMath; u
         y += n.h + GAP
       }
     })
-    const paths: { d: string; color: string; from: string; to: string; val: number; pct: string }[] = []
-    for (const [fromId, toId, val, color] of rawLinks) {
+    const viewGross = col1.reduce((sum, n) => sum + n.val, 0) || grossMo
+    const paths: {
+      d: string
+      fromColor: string
+      toColor: string
+      x0: number
+      x1: number
+      from: string
+      to: string
+      val: number
+      pct: string
+    }[] = []
+    for (const [fromId, toId, val] of rawLinks) {
       if (val <= 0.5) continue
       const s = byId[fromId]
       const t = byId[toId]
@@ -249,15 +293,18 @@ function PlanSankey({ state, math, unit }: { state: PlanState; math: PlanMath; u
       const mx = (x0 + x1) / 2
       paths.push({
         d: `M ${x0} ${sy} C ${mx} ${sy} ${mx} ${ty} ${x1} ${ty} L ${x1} ${ty + th} C ${mx} ${ty + th} ${mx} ${sy + sh} ${x0} ${sy + sh} Z`,
-        color,
+        fromColor: s.color,
+        toColor: t.color,
+        x0,
+        x1,
         from: s.label,
         to: t.label,
         val,
-        pct: ((val / grossMo) * 100).toFixed(1),
+        pct: ((val / viewGross) * 100).toFixed(1),
       })
     }
     return { nodes: Object.values(byId), links: paths }
-  }, [state, math, a.name, b.name, colorA, colorB])
+  }, [state, math, view, a.name, b.name, colorA, colorB])
 
   function show(e: { clientX: number; clientY: number }, lines: string[]): void {
     const box = boxRef.current?.getBoundingClientRect()
@@ -265,17 +312,25 @@ function PlanSankey({ state, math, unit }: { state: PlanState; math: PlanMath; u
     setTip({ x: e.clientX - box.left, y: e.clientY - box.top - 6, lines })
   }
 
-  const grossMo = math.gross / 12 || 1
+  const viewGross = nodes.filter((n) => n.col === 0).reduce((sum, n) => sum + n.val, 0) || 1
   return (
     <div ref={boxRef} className="relative overflow-x-auto">
       <svg viewBox="0 0 960 520" className="w-full min-w-[640px]" role="img" aria-label="Money flow from incomes through deductions and taxes to budget buckets">
+        <defs>
+          {links.map((link, i) => (
+            <linearGradient key={i} id={`flow-g${i}`} gradientUnits="userSpaceOnUse" x1={link.x0} x2={link.x1} y1="0" y2="0">
+              <stop offset="0" style={{ stopColor: link.fromColor }} />
+              <stop offset="1" style={{ stopColor: link.toColor }} />
+            </linearGradient>
+          ))}
+        </defs>
         {links.map((link, i) => (
           <path
             key={i}
             d={link.d}
-            style={{ fill: link.color, opacity: 0.32 }}
-            className="transition-opacity hover:opacity-60"
-            onPointerMove={(e) => show(e, [`${fmt$(link.val * k)} ${per}`, `${link.from} → ${link.to}`, `${link.pct}% of gross income`])}
+            style={{ fill: `url(#flow-g${i})`, opacity: 0.5 }}
+            className="transition-opacity hover:opacity-80"
+            onPointerMove={(e) => show(e, [`${fmt$(link.val)} ${per}`, `${link.from} → ${link.to}`, `${link.pct}% of gross`])}
             onPointerLeave={() => setTip(null)}
           />
         ))}
@@ -284,7 +339,7 @@ function PlanSankey({ state, math, unit }: { state: PlanState; math: PlanMath; u
           const tx = anchorEnd ? n.x! - 8 : n.x! + 22
           const anchor = anchorEnd ? 'end' : 'start'
           const cy = n.y! + n.h! / 2
-          const pct = ((n.val / grossMo) * 100).toFixed(1)
+          const pct = ((n.val / viewGross) * 100).toFixed(1)
           return (
             <g key={n.id}>
               <rect
@@ -295,8 +350,8 @@ function PlanSankey({ state, math, unit }: { state: PlanState; math: PlanMath; u
                 rx={3}
                 style={{ fill: n.color }}
                 tabIndex={0}
-                aria-label={`${n.label}: ${fmt$(n.val * k)} ${unit === 'yr' ? 'per year' : 'per month'}`}
-                onPointerMove={(e) => show(e, [`${fmt$(n.val * k)} ${per}`, n.label, `${pct}% of gross income`])}
+                aria-label={`${n.label}: ${fmt$(n.val)} ${per}`}
+                onPointerMove={(e) => show(e, [`${fmt$(n.val)} ${per}`, n.label, `${pct}% of gross`])}
                 onPointerLeave={() => setTip(null)}
               />
               {n.h! >= 30 ? (
@@ -305,12 +360,12 @@ function PlanSankey({ state, math, unit }: { state: PlanState; math: PlanMath; u
                     {n.label}
                   </text>
                   <text x={tx} y={cy + 12} textAnchor={anchor} fontSize="11.5" fontWeight="600" className="fill-slate-800" style={{ paintOrder: 'stroke', stroke: 'var(--color-white)', strokeWidth: 3, strokeLinejoin: 'round' }}>
-                    {fmt$(n.val * k)}
+                    {fmt$(n.val)}
                   </text>
                 </>
               ) : (
                 <text x={tx} y={cy + 4} textAnchor={anchor} fontSize="11" className="fill-slate-500" style={{ paintOrder: 'stroke', stroke: 'var(--color-white)', strokeWidth: 3, strokeLinejoin: 'round' }}>
-                  {n.label} <tspan dx={5} fontWeight="600" className="fill-slate-800">{fmt$(n.val * k)}</tspan>
+                  {n.label} <tspan dx={5} fontWeight="600" className="fill-slate-800">{fmt$(n.val)}</tspan>
                 </text>
               )}
             </g>
@@ -422,6 +477,18 @@ function PersonPanel({
           ))}
         </select>
       </div>
+      {(person.pay_freq === 'biweekly' || person.pay_freq === 'weekly') && (
+        <div className="mb-2 grid grid-cols-[1fr_auto] items-center gap-2 text-xs text-slate-500">
+          <span>Next payday</span>
+          <input
+            type="date"
+            value={person.next_payday ?? ''}
+            aria-label={`${person.name} next payday`}
+            onChange={(e) => onChange({ ...person, next_payday: e.target.value || null })}
+            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600"
+          />
+        </div>
+      )}
       <p className="-mt-1 mb-2 text-right text-[10px] tabular-nums text-slate-400">
         {person.pay_type === 'hourly' && annual > 0 ? `= ${fmt$(annual)} a year · ` : ''}
         {annual > 0 ? `≈ ${fmt$(planPerCheck(person))} gross per paycheck` : 'Enter pay to see paycheck math'}
@@ -432,7 +499,6 @@ function PersonPanel({
             <SliderRow
               label="401(k) — % of gross, pre-tax"
               value={person.k401_pct}
-              format={(v) => `${v.toFixed(1)}%`}
               onChange={(k401_pct) => onChange({ ...person, k401_pct })}
             />
           </div>
@@ -548,7 +614,8 @@ export default function Plan() {
   )
   const [applyMode, setApplyMode] = useState<'default' | 'month'>('default')
   const [applyNote, setApplyNote] = useState<string | null>(null)
-  const [flowUnit, setFlowUnit] = useState<'mo' | 'yr'>('mo')
+  const [flowKind, setFlowKind] = useState<'month' | 'avg' | 'yr'>('month')
+  const [flowMonth, setFlowMonth] = useState(currentMonth())
   const { data: actuals } = useApi<ActualsResponse>(`/plan/actuals?month=${actualMonth}`)
   const dirtyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const planRef = useRef<PlanState | null>(null)
@@ -674,7 +741,22 @@ export default function Plan() {
         ? `${p.name}: 2 checks most months (${fmt$(planPerCheck(p) * 2)} gross), 2 months a year bring a 3rd`
         : `${p.name}: 4 checks most months (${fmt$(planPerCheck(p) * 4)} gross), a few bring a 5th`,
     )
-  const payRhythmNote = rhythmParts.length > 0 ? `Monthly = a year ÷ 12. ${rhythmParts.join(' · ')}.` : ''
+  const payRhythmNote = rhythmParts.length > 0 ? `Average month = a year ÷ 12. ${rhythmParts.join(' · ')}.` : ''
+
+  // Month view: say exactly how many checks land, and nudge for a payday anchor.
+  const checksParts = plan.people
+    .filter((p) => planAnnualGross(p) > 0)
+    .map((p) => {
+      const n = checksInMonth(p, flowMonth)
+      return `${p.name}: ${n} ${n === 1 ? 'check' : 'checks'} (${fmt$(planMonthGross(p, flowMonth))} gross)`
+    })
+  const needsAnchor = plan.people.some(
+    (p) => (p.pay_freq === 'biweekly' || p.pay_freq === 'weekly') && !p.next_payday && planAnnualGross(p) > 0,
+  )
+  const monthChecksNote =
+    checksParts.length > 0
+      ? `${checksParts.join(' · ')}.${needsAnchor ? ' Set a next payday in section 1 to pin down the 3-check months.' : ''}`
+      : ''
 
   const elapsedPct = actuals ? actuals.today_day / actuals.days_in_month : 1
   const isCurrentMonth = actualMonth === currentMonth()
@@ -761,24 +843,46 @@ export default function Plan() {
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <SectionTitle n={2} title="The flow of every dollar" />
-          <div className="flex rounded-xl bg-slate-100 p-1 text-xs">
-            {(['mo', 'yr'] as const).map((u) => (
-              <button
-                key={u}
-                onClick={() => setFlowUnit(u)}
-                className={cls(
-                  'rounded-lg px-3 py-1 font-medium transition-colors',
-                  flowUnit === u ? 'bg-white shadow-sm' : 'text-slate-500',
-                )}
-              >
-                {u === 'mo' ? 'Monthly' : 'Annual'}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            {flowKind === 'month' && (
+              <div className="flex items-center">
+                <button onClick={() => setFlowMonth(shiftMonth(flowMonth, -1))} aria-label="Previous month" className="rounded-lg p-1 text-slate-500 hover:bg-slate-100">
+                  <ChevronLeft size={15} />
+                </button>
+                <span className="w-28 text-center text-xs font-semibold">{fmtMonth(flowMonth)}</span>
+                <button onClick={() => setFlowMonth(shiftMonth(flowMonth, 1))} aria-label="Next month" className="rounded-lg p-1 text-slate-500 hover:bg-slate-100">
+                  <ChevronRight size={15} />
+                </button>
+              </div>
+            )}
+            <div className="flex rounded-xl bg-slate-100 p-1 text-xs">
+              {([
+                ['month', 'Month'],
+                ['avg', 'Average'],
+                ['yr', 'Year'],
+              ] as const).map(([kind, label]) => (
+                <button
+                  key={kind}
+                  onClick={() => setFlowKind(kind)}
+                  className={cls(
+                    'rounded-lg px-3 py-1 font-medium transition-colors',
+                    flowKind === kind ? 'bg-white shadow-sm' : 'text-slate-500',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-        {flowUnit === 'mo' && payRhythmNote && <p className="mt-1 text-[11px] text-slate-400">{payRhythmNote}</p>}
+        {flowKind === 'month' && monthChecksNote && <p className="mt-1 text-[11px] text-slate-400">{monthChecksNote}</p>}
+        {flowKind === 'avg' && payRhythmNote && <p className="mt-1 text-[11px] text-slate-400">{payRhythmNote}</p>}
         <div className="mt-2">
-          <PlanSankey state={plan} math={math} unit={flowUnit} />
+          <PlanSankey
+            state={plan}
+            math={math}
+            view={flowKind === 'month' ? { kind: 'month', month: flowMonth } : { kind: flowKind }}
+          />
         </div>
       </Card>
 
@@ -834,7 +938,6 @@ export default function Plan() {
                 min={0}
                 max={12}
                 step={0.05}
-                format={(v) => `${v.toFixed(2)}%`}
                 onChange={(v) => update((d) => { d.state_rate = v })}
               />
               <NumberField
@@ -854,7 +957,6 @@ export default function Plan() {
                   min={0}
                   max={60}
                   step={0.5}
-                  format={(v) => `${v.toFixed(1)}%`}
                   onChange={(v) => update((d) => { d.people[index].manual_tax_pct = v })}
                 />
               ))}
@@ -896,26 +998,70 @@ export default function Plan() {
 
       <Card>
         <SectionTitle n={4} title="Split the take-home pool" hint="Drag one — the rest rebalance to keep 100%." />
-        {PLAN_ALLOC_KEYS.map((key) => (
-          <div key={key} className="mb-2.5 grid grid-cols-[150px_1fr_52px_84px] items-center gap-2 text-sm sm:grid-cols-[190px_1fr_60px_92px] sm:gap-3">
-            <span className="flex items-center gap-2 text-xs sm:text-[13px]">
-              <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ backgroundColor: ALLOC_META[key].color }} />
-              <span className="truncate">{ALLOC_META[key].label}</span>
-            </span>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              step={0.5}
-              value={plan.alloc[key]}
-              aria-label={`${ALLOC_META[key].label} percent of take-home`}
-              onChange={(e) => update((d) => { d.alloc = rebalanceAlloc(d.alloc, key, parseFloat(e.target.value)) })}
-              className="w-full accent-[var(--color-accent)]"
-            />
-            <span className="text-right text-sm font-semibold tabular-nums">{plan.alloc[key].toFixed(1)}%</span>
-            <span className="text-right text-xs tabular-nums text-slate-500">{fmt$(math.alloc[key])}/mo</span>
-          </div>
-        ))}
+        {PLAN_ALLOC_KEYS.map((key) => {
+          const locked = plan.alloc_locked.includes(key)
+          const setPct = (v: number): void =>
+            update((d) => {
+              d.alloc = rebalanceAlloc(d.alloc, key, v, d.alloc_locked.filter((k) => k !== key))
+            })
+          return (
+            <div
+              key={key}
+              className="mb-2.5 grid grid-cols-[130px_1fr_76px_96px_30px] items-center gap-2 text-sm sm:grid-cols-[180px_1fr_84px_108px_32px] sm:gap-3"
+            >
+              <span className="flex items-center gap-2 text-xs sm:text-[13px]">
+                <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ backgroundColor: ALLOC_META[key].color }} />
+                <span className="truncate">{ALLOC_META[key].label}</span>
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={0.5}
+                value={plan.alloc[key]}
+                disabled={locked}
+                aria-label={`${ALLOC_META[key].label} percent of take-home`}
+                onChange={(e) => setPct(parseFloat(e.target.value))}
+                className="w-full accent-[var(--color-accent)] disabled:opacity-40"
+              />
+              <span className="flex items-center justify-end gap-0.5">
+                <NumberInput
+                  value={Math.round(plan.alloc[key] * 10) / 10}
+                  disabled={locked}
+                  aria-label={`${ALLOC_META[key].label} percent value`}
+                  onValue={(v) => setPct(Math.min(100, v))}
+                  className="w-12 rounded-md border border-slate-200 bg-white px-1 py-0.5 text-right text-xs font-semibold tabular-nums disabled:opacity-50"
+                />
+                <span className="text-xs text-slate-400">%</span>
+              </span>
+              <span className="flex items-center justify-end gap-0.5">
+                <NumberInput
+                  value={Math.round(math.alloc[key])}
+                  disabled={locked}
+                  aria-label={`${ALLOC_META[key].label} dollars per month`}
+                  onValue={(v) => setPct(math.pool_mo > 0 ? Math.min(100, (v / math.pool_mo) * 100) : 0)}
+                  className="w-16 rounded-md border border-slate-200 bg-white px-1 py-0.5 text-right text-xs tabular-nums text-slate-600 disabled:opacity-50"
+                />
+                <span className="text-[10px] text-slate-400">/mo</span>
+              </span>
+              <button
+                title={locked ? 'Unlock — let rebalancing move it again' : 'Lock this bucket in place'}
+                aria-label={`${locked ? 'Unlock' : 'Lock'} ${ALLOC_META[key].label}`}
+                onClick={() =>
+                  update((d) => {
+                    d.alloc_locked = locked ? d.alloc_locked.filter((k) => k !== key) : [...d.alloc_locked, key]
+                  })
+                }
+                className={cls(
+                  'justify-self-center rounded p-1 transition-colors',
+                  locked ? 'text-violet-600 hover:bg-violet-50' : 'text-slate-300 hover:bg-slate-100 hover:text-slate-500',
+                )}
+              >
+                {locked ? <Lock size={14} /> : <LockOpen size={14} />}
+              </button>
+            </div>
+          )
+        })}
         <div className="mt-4 max-w-md">
           <div className="grid grid-cols-[1fr_110px_70px] items-center gap-2.5 text-xs text-slate-500">
             <span>Trip goal ($)</span>
@@ -1014,8 +1160,14 @@ export default function Plan() {
                           onChange={(e) => update((d) => { d.cats[index].benefit_a = parseFloat(e.target.value) })}
                           className="w-20 shrink-0 accent-[var(--color-accent)]"
                         />
-                        <span className="whitespace-nowrap text-[10px] tabular-nums text-slate-400">
-                          {cat.benefit_a} / {100 - cat.benefit_a}
+                        <span className="flex items-center gap-0.5 whitespace-nowrap text-[10px] tabular-nums text-slate-400">
+                          <NumberInput
+                            value={cat.benefit_a}
+                            aria-label={`${cat.name} benefit percent to ${a.name}`}
+                            onValue={(v) => update((d) => { d.cats[index].benefit_a = Math.min(100, Math.max(0, v)) })}
+                            className="w-9 rounded border border-slate-200 bg-white px-1 py-0.5 text-right text-[10px] tabular-nums"
+                          />
+                          <span>/ {100 - cat.benefit_a}</span>
                         </span>
                       </div>
                     </td>

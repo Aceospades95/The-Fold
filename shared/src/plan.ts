@@ -64,6 +64,8 @@ export interface PlanPerson {
   hours_per_week: number
   /** How paychecks actually arrive — drives every per-paycheck figure. */
   pay_freq: PlanPayFreq
+  /** Any real payday (YYYY-MM-DD) — anchors which months get an extra check. */
+  next_payday: string | null
   /** Traditional 401(k) as a percent of gross. Zero = none. */
   k401_pct: number
   /** Effective total tax rate (fed+state+FICA) when tax_mode is 'manual'. */
@@ -95,6 +97,8 @@ export interface PlanState {
   people: [PlanPerson, PlanPerson]
   /** Percent of the take-home pool per bucket; always sums to 100. */
   alloc: Record<PlanAllocKey, number>
+  /** Buckets pinned in place — rebalancing never touches them. */
+  alloc_locked: PlanAllocKey[]
   cats: PlanCategory[]
   personal_mode: 'equal' | 'prop'
   trip_goal: number
@@ -119,6 +123,38 @@ export function planAnnualGross(person: PlanPerson): number {
 /** Gross dollars in one paycheck at this person's pay frequency. */
 export function planPerCheck(person: PlanPerson): number {
   return planAnnualGross(person) / PLAN_FREQ_FACTOR[person.pay_freq]
+}
+
+/**
+ * How many paydays land inside a YYYY-MM month. Biweekly/weekly rhythms need
+ * an anchor date — `next_payday` when set, else the year's first Friday.
+ */
+export function checksInMonth(person: PlanPerson, month: string): number {
+  if (person.pay_freq === 'monthly') return 1
+  if (person.pay_freq === 'semimonthly') return 2
+  const stepMs = (person.pay_freq === 'weekly' ? 7 : 14) * 86400000
+  const [y, m] = month.split('-').map(Number)
+  const start = Date.UTC(y, m - 1, 1)
+  const end = Date.UTC(y, m, 1)
+  let anchor = person.next_payday ? Date.parse(`${person.next_payday}T00:00:00Z`) : NaN
+  if (!Number.isFinite(anchor)) {
+    const jan1 = new Date(Date.UTC(y, 0, 1))
+    anchor = Date.UTC(y, 0, 1 + ((5 - jan1.getUTCDay() + 7) % 7))
+  }
+  // First payday of the series on/after the month start, then count the hops.
+  const rem = (((start - anchor) % stepMs) + stepMs) % stepMs
+  let t = rem === 0 ? start : start + stepMs - rem
+  let count = 0
+  while (t < end) {
+    count += 1
+    t += stepMs
+  }
+  return count
+}
+
+/** Gross dollars actually arriving in one specific month. */
+export function planMonthGross(person: PlanPerson, month: string): number {
+  return planPerCheck(person) * checksInMonth(person, month)
 }
 
 /** Monthly dollars a category claims, given the pool. */
@@ -299,12 +335,19 @@ export function rebalanceAlloc(
   alloc: Record<PlanAllocKey, number>,
   changed: PlanAllocKey,
   value: number,
+  locked: PlanAllocKey[] = [],
 ): Record<PlanAllocKey, number> {
   const next = { ...alloc }
-  const clamped = Math.min(100, Math.max(0, value))
-  const others = PLAN_ALLOC_KEYS.filter((k) => k !== changed)
-  const oldOthers = 100 - (next[changed] ?? 0)
-  const newOthers = 100 - clamped
+  const lockedSet = new Set(locked.filter((k) => k !== changed))
+  const lockedSum = [...lockedSet].reduce((sum, k) => sum + (next[k] ?? 0), 0)
+  const others = PLAN_ALLOC_KEYS.filter((k) => k !== changed && !lockedSet.has(k))
+  if (others.length === 0) {
+    next[changed] = Math.max(0, 100 - lockedSum)
+    return next
+  }
+  const clamped = Math.min(100 - lockedSum, Math.max(0, value))
+  const oldOthers = others.reduce((sum, k) => sum + (next[k] ?? 0), 0)
+  const newOthers = 100 - lockedSum - clamped
   if (oldOthers <= 0.0001) {
     for (const k of others) next[k] = newOthers / others.length
   } else {
@@ -349,6 +392,7 @@ function defaultPerson(name: string, color: string, salary: number, k401: number
     hourly_rate: Math.round((salary / 2080) * 100) / 100,
     hours_per_week: 40,
     pay_freq: 'biweekly',
+    next_payday: null,
     k401_pct: k401,
     manual_tax_pct: tax,
     items: [],
@@ -364,6 +408,7 @@ export function defaultPlanState(): PlanState {
     std_ded: STD_DED_MFJ_2026,
     people: [defaultPerson('You', '#8b5cf6', 85000, 6, 22), defaultPerson('Partner', '#0ea5e9', 70000, 5, 20)],
     alloc: { living: 62, savings: 12, invest: 8, trip: 4, personal: 14 },
+    alloc_locked: [],
     cats: [],
     personal_mode: 'equal',
     trip_goal: 6000,
@@ -410,6 +455,10 @@ export function migratePlanState(input: unknown): PlanState | null {
         typeof person.hourly_rate === 'number' ? person.hourly_rate : Math.round((salary / 2080) * 100) / 100,
       hours_per_week: typeof person.hours_per_week === 'number' ? person.hours_per_week : 40,
       pay_freq: payFreq,
+      next_payday:
+        typeof person.next_payday === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(person.next_payday)
+          ? person.next_payday
+          : null,
       k401_pct: typeof person.k401_pct === 'number' ? person.k401_pct : fallback.k401_pct,
       manual_tax_pct: typeof person.manual_tax_pct === 'number' ? person.manual_tax_pct : fallback.manual_tax_pct,
       items: Array.isArray(person.items) ? (person.items as PlanDeduction[]) : [],
@@ -435,6 +484,9 @@ export function migratePlanState(input: unknown): PlanState | null {
     std_ded: typeof raw.std_ded === 'number' ? raw.std_ded : base.std_ded,
     people: people as [PlanPerson, PlanPerson],
     alloc: { ...base.alloc, ...(typeof raw.alloc === 'object' && raw.alloc ? (raw.alloc as Record<PlanAllocKey, number>) : {}) },
+    alloc_locked: Array.isArray(raw.alloc_locked)
+      ? (raw.alloc_locked.filter((k) => PLAN_ALLOC_KEYS.includes(k as PlanAllocKey)) as PlanAllocKey[])
+      : [],
     cats,
     personal_mode: raw.personal_mode === 'prop' ? 'prop' : 'equal',
     trip_goal: typeof raw.trip_goal === 'number' ? raw.trip_goal : base.trip_goal,

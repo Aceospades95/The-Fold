@@ -105,10 +105,14 @@ describe('plan persistence & scenarios', () => {
   it('saves, round-trips, and stamps who saved', async () => {
     const { state } = await get('/api/plan')
     state.trip_goal = 8000
+    state.alloc_locked = ['savings']
+    state.people[0].next_payday = '2026-09-04'
     const put = await app.inject({ method: 'PUT', url: '/api/plan', cookies: cookie, payload: { state } })
     expect(put.statusCode).toBe(200)
     const back = await get('/api/plan')
     expect(back.state.trip_goal).toBe(8000)
+    expect(back.state.alloc_locked).toEqual(['savings'])
+    expect(back.state.people[0].next_payday).toBe('2026-09-04')
     expect(back.saved_by).toBe('Jake')
     expect(back.bootstrapped).toBeUndefined()
   })

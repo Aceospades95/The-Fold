@@ -11,23 +11,33 @@
 export type PlanDeductionType = 's125' | 'hsa' | 'pretax' | 'posttax'
 export type PlanFiling = 'mfj' | 'single'
 export type PlanAllocKey = 'living' | 'savings' | 'invest' | 'trip' | 'personal'
-export type PlanPayPer = 'yr' | 'mo' | 'semimonthly' | 'biweekly' | 'weekly'
+export type PlanPayType = 'salary' | 'hourly'
+export type PlanPayFreq = 'monthly' | 'semimonthly' | 'biweekly' | 'weekly'
 
-/** Paychecks per year for each frequency. */
-export const PLAN_PAY_FACTOR: Record<PlanPayPer, number> = {
-  yr: 1,
-  mo: 12,
+/** Paychecks per year for each pay frequency. */
+export const PLAN_FREQ_FACTOR: Record<PlanPayFreq, number> = {
+  monthly: 12,
   semimonthly: 24,
   biweekly: 26,
   weekly: 52,
 }
 
-export const PLAN_PAY_LABELS: Record<PlanPayPer, string> = {
-  yr: 'per year',
-  mo: 'per month',
+export const PLAN_FREQ_LABELS: Record<PlanPayFreq, string> = {
+  monthly: 'once a month',
   semimonthly: 'twice a month',
   biweekly: 'every other week',
   weekly: 'every week',
+}
+
+/** Legacy v1/v2 "amount per interval" unit — kept only so old states migrate. */
+export type PlanPayPer = 'yr' | 'mo' | 'semimonthly' | 'biweekly' | 'weekly'
+const LEGACY_PAY_FACTOR: Record<PlanPayPer, number> = { yr: 1, mo: 12, semimonthly: 24, biweekly: 26, weekly: 52 }
+const LEGACY_PER_TO_FREQ: Record<PlanPayPer, PlanPayFreq> = {
+  yr: 'biweekly',
+  mo: 'monthly',
+  semimonthly: 'semimonthly',
+  biweekly: 'biweekly',
+  weekly: 'weekly',
 }
 
 export interface PlanDeduction {
@@ -44,9 +54,16 @@ export interface PlanPerson {
   user_id: string | null
   name: string
   color: string
-  /** Gross pay in dollars, per `gross_per` (e.g. 3500 every other week). */
-  gross_amount: number
-  gross_per: PlanPayPer
+  /** How this person is paid: a yearly salary, or an hourly rate × hours. */
+  pay_type: PlanPayType
+  /** Annual gross salary in dollars (pay_type 'salary'). */
+  salary: number
+  /** Dollars per hour (pay_type 'hourly'). */
+  hourly_rate: number
+  /** Scheduled hours per week (pay_type 'hourly'). */
+  hours_per_week: number
+  /** How paychecks actually arrive — drives every per-paycheck figure. */
+  pay_freq: PlanPayFreq
   /** Traditional 401(k) as a percent of gross. Zero = none. */
   k401_pct: number
   /** Effective total tax rate (fed+state+FICA) when tax_mode is 'manual'. */
@@ -67,7 +84,7 @@ export interface PlanCategory {
 }
 
 export interface PlanState {
-  v: 2
+  v: 3
   filing: PlanFiling
   /** 'auto' = 2026 brackets + FICA; 'manual' = each person's own flat rate. */
   tax_mode: 'auto' | 'manual'
@@ -93,7 +110,15 @@ export const PLAN_DED_TYPES: Record<PlanDeductionType, { label: string; income_e
 }
 
 export function planAnnualGross(person: PlanPerson): number {
-  return (Number(person.gross_amount) || 0) * PLAN_PAY_FACTOR[person.gross_per]
+  if (person.pay_type === 'hourly') {
+    return (Number(person.hourly_rate) || 0) * (Number(person.hours_per_week) || 0) * 52
+  }
+  return Number(person.salary) || 0
+}
+
+/** Gross dollars in one paycheck at this person's pay frequency. */
+export function planPerCheck(person: PlanPerson): number {
+  return planAnnualGross(person) / PLAN_FREQ_FACTOR[person.pay_freq]
 }
 
 /** Monthly dollars a category claims, given the pool. */
@@ -314,17 +339,30 @@ export function fairness(state: PlanState, math: PlanMath): {
 let planIdCounter = 1
 export const planId = (): string => `p${planIdCounter++}_${Math.random().toString(36).slice(2, 7)}`
 
+function defaultPerson(name: string, color: string, salary: number, k401: number, tax: number): PlanPerson {
+  return {
+    user_id: null,
+    name,
+    color,
+    pay_type: 'salary',
+    salary,
+    hourly_rate: Math.round((salary / 2080) * 100) / 100,
+    hours_per_week: 40,
+    pay_freq: 'biweekly',
+    k401_pct: k401,
+    manual_tax_pct: tax,
+    items: [],
+  }
+}
+
 export function defaultPlanState(): PlanState {
   return {
-    v: 2,
+    v: 3,
     filing: 'mfj',
     tax_mode: 'auto',
     state_rate: 4.95,
     std_ded: STD_DED_MFJ_2026,
-    people: [
-      { user_id: null, name: 'You', color: '#8b5cf6', gross_amount: 85000, gross_per: 'yr', k401_pct: 6, manual_tax_pct: 22, items: [] },
-      { user_id: null, name: 'Partner', color: '#0ea5e9', gross_amount: 70000, gross_per: 'yr', k401_pct: 5, manual_tax_pct: 20, items: [] },
-    ],
+    people: [defaultPerson('You', '#8b5cf6', 85000, 6, 22), defaultPerson('Partner', '#0ea5e9', 70000, 5, 20)],
     alloc: { living: 62, savings: 12, invest: 8, trip: 4, personal: 14 },
     cats: [],
     personal_mode: 'equal',
@@ -332,26 +370,46 @@ export function defaultPlanState(): PlanState {
   }
 }
 
-/** Adopt any stored plan (v1 annual-gross states included) into the v2 shape. */
+/** Adopt any stored plan (v1 annual-gross and v2 per-interval states included) into the v3 shape. */
 export function migratePlanState(input: unknown): PlanState | null {
   if (!input || typeof input !== 'object') return null
   const raw = input as Record<string, unknown>
-  if (raw.v !== 1 && raw.v !== 2) return null
+  if (raw.v !== 1 && raw.v !== 2 && raw.v !== 3) return null
   const base = defaultPlanState()
   const people = (Array.isArray(raw.people) ? raw.people : []).slice(0, 2).map((p, index) => {
     const person = (p ?? {}) as Record<string, unknown>
     const fallback = base.people[index]
+
+    let salary: number
+    let payFreq: PlanPayFreq =
+      (person.pay_freq as PlanPayFreq) in PLAN_FREQ_FACTOR ? (person.pay_freq as PlanPayFreq) : 'biweekly'
+    if (typeof person.salary === 'number') {
+      salary = person.salary
+    } else {
+      // v2 stored "amount per interval"; v1 stored annual `gross`. Fold either
+      // into an annual salary and carry the old interval over as the frequency.
+      const per: PlanPayPer =
+        (person.gross_per as PlanPayPer) in LEGACY_PAY_FACTOR ? (person.gross_per as PlanPayPer) : 'yr'
+      const amount =
+        typeof person.gross_amount === 'number'
+          ? person.gross_amount
+          : typeof person.gross === 'number'
+            ? person.gross
+            : fallback.salary
+      salary = Math.round(amount * LEGACY_PAY_FACTOR[per])
+      if (typeof person.pay_freq !== 'string') payFreq = LEGACY_PER_TO_FREQ[per]
+    }
+
     return {
       user_id: typeof person.user_id === 'string' ? person.user_id : null,
       name: typeof person.name === 'string' && person.name ? person.name : fallback.name,
       color: typeof person.color === 'string' && person.color ? person.color : fallback.color,
-      gross_amount:
-        typeof person.gross_amount === 'number'
-          ? person.gross_amount
-          : typeof person.gross === 'number' // v1: annual `gross`
-            ? person.gross
-            : fallback.gross_amount,
-      gross_per: (person.gross_per as PlanPayPer) in PLAN_PAY_FACTOR ? (person.gross_per as PlanPayPer) : 'yr',
+      pay_type: person.pay_type === 'hourly' ? ('hourly' as const) : ('salary' as const),
+      salary,
+      hourly_rate:
+        typeof person.hourly_rate === 'number' ? person.hourly_rate : Math.round((salary / 2080) * 100) / 100,
+      hours_per_week: typeof person.hours_per_week === 'number' ? person.hours_per_week : 40,
+      pay_freq: payFreq,
       k401_pct: typeof person.k401_pct === 'number' ? person.k401_pct : fallback.k401_pct,
       manual_tax_pct: typeof person.manual_tax_pct === 'number' ? person.manual_tax_pct : fallback.manual_tax_pct,
       items: Array.isArray(person.items) ? (person.items as PlanDeduction[]) : [],
@@ -370,7 +428,7 @@ export function migratePlanState(input: unknown): PlanState | null {
     }
   })
   return {
-    v: 2,
+    v: 3,
     filing: raw.filing === 'single' ? 'single' : 'mfj',
     tax_mode: raw.tax_mode === 'manual' ? 'manual' : 'auto',
     state_rate: typeof raw.state_rate === 'number' ? raw.state_rate : base.state_rate,

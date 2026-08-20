@@ -16,7 +16,7 @@ import { api, useApi } from '../api'
 import { useMe } from '../App'
 import { fmtMoney } from '../format'
 import { ACCENTS, applyTheme, loadTheme, type ThemeMode, type ThemePref } from '../theme'
-import { Avatar, Button, Card, CardTitle, Chip, ErrorNote, Field, Modal, MoneyInput, Select, TextInput, cls } from '../ui'
+import { Avatar, Button, Card, CardTitle, Chip, ErrorNote, Field, Modal, MoneyInput, NumberInput, Select, TextInput, cls } from '../ui'
 
 function AccountCard() {
   const { me, reloadMe } = useMe()
@@ -837,12 +837,9 @@ function BudgetMethodCard() {
                   ).map(([key, label]) => (
                     <label key={key} className="flex items-center gap-1.5 text-xs text-slate-600">
                       {label}
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
+                      <NumberInput
                         value={config[key]}
-                        onChange={(e) => setConfig({ ...config, [key]: Number(e.target.value) })}
+                        onValue={(v) => setConfig({ ...config, [key]: Math.min(100, v) })}
                         className="w-14 rounded-lg border border-slate-300 bg-white px-1.5 py-1 text-right text-xs"
                       />
                       %
@@ -1252,12 +1249,9 @@ export default function Settings() {
             {me.household.members.map((m) => (
               <label key={m.id} className="flex items-center gap-2 text-sm">
                 <Avatar name={m.name} color={m.color} size={22} />
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
+                <NumberInput
                   value={customSplit[m.id] ?? 0}
-                  onChange={(e) => setCustomSplit({ ...customSplit, [m.id]: Number(e.target.value) })}
+                  onValue={(v) => setCustomSplit({ ...customSplit, [m.id]: Math.min(100, v) })}
                   className="w-16 rounded-lg border border-slate-300 bg-white px-2 py-1 text-right text-sm"
                 />
                 %

@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path'
 import { buildApp } from './app.js'
 import { openDb } from './db.js'
 import { runDailyBackup } from './lib/backup.js'
+import { materializeAllDefaults } from './lib/defaults.js'
 import { syncAllSimplefin } from './lib/simplefin.js'
 import { runDailyJobs } from './lib/webhooks.js'
 
@@ -29,6 +30,11 @@ try {
 function daily(): void {
   runDailyJobs(db).catch((err) => app.log.error(err, 'daily jobs failed'))
   syncAllSimplefin(db).catch((err) => app.log.error(err, 'simplefin sync failed'))
+  try {
+    materializeAllDefaults(db)
+  } catch (err) {
+    app.log.error(err, 'default budget materialization failed')
+  }
   try {
     runDailyBackup(db, dbPath)
   } catch (err) {

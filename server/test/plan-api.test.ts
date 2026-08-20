@@ -80,9 +80,10 @@ describe('plan bootstrap', () => {
     expect(r.bootstrapped).toBe(true)
     const state: PlanState = r.state
     const jake = state.people[0]
-    // One biweekly source: keep the paycheck view — 3,500 every other week.
-    expect(jake.gross_amount).toBe(3500)
-    expect(jake.gross_per).toBe('biweekly')
+    // One biweekly source: annual salary with the paycheck rhythm preserved.
+    expect(jake.pay_type).toBe('salary')
+    expect(jake.salary).toBe(91000)
+    expect(jake.pay_freq).toBe('biweekly')
     // 210/paycheck 401k = 5,460/yr = 6% of gross.
     expect(jake.k401_pct).toBeCloseTo(6, 1)
     // Withheld taxes seed the manual rate: 13,000 / 91,000 ≈ 14.3%.
@@ -90,7 +91,7 @@ describe('plan bootstrap', () => {
     // Medical became a §125 item; the tax line was skipped.
     expect(jake.items).toHaveLength(1)
     expect(jake.items[0].type).toBe('s125')
-    expect(state.people[1]).toMatchObject({ gross_amount: 4000, gross_per: 'mo' })
+    expect(state.people[1]).toMatchObject({ salary: 48000, pay_freq: 'monthly' })
 
     const groceries = state.cats.find((c) => c.name === 'Groceries')
     expect(groceries).toBeTruthy()
@@ -166,8 +167,10 @@ describe('partner auto-link', () => {
       const state: PlanState = boot.state
       expect(state.people[1].user_id).toBeNull()
       state.people[1].name = 'Partner'
-      state.people[1].gross_amount = 2600
-      state.people[1].gross_per = 'biweekly'
+      state.people[1].pay_type = 'hourly'
+      state.people[1].hourly_rate = 32.5
+      state.people[1].hours_per_week = 40
+      state.people[1].pay_freq = 'biweekly'
       state.people[1].k401_pct = 4
       await solo.inject({ method: 'PUT', url: '/api/plan', cookies: jake.cookie, payload: { state } })
 
@@ -180,8 +183,9 @@ describe('partner auto-link', () => {
       expect(partner.user_id).toBe(sanya.userId)
       expect(partner.name).toBe('Sanya')
       // The modeled numbers survived the hand-off.
-      expect(partner.gross_amount).toBe(2600)
-      expect(partner.gross_per).toBe('biweekly')
+      expect(partner.pay_type).toBe('hourly')
+      expect(partner.hourly_rate).toBe(32.5)
+      expect(partner.pay_freq).toBe('biweekly')
       expect(partner.k401_pct).toBe(4)
     } finally {
       await solo.close()

@@ -304,6 +304,8 @@ export function computeBudget(db: DatabaseSync, householdId: string, month: stri
     pace,
     has_allocations: rows.some((r) => r.allocated_cents > 0),
     prev_month_has_allocations: prevAllocated,
+    // The route layers the household's default-budget info on top.
+    default_effective: null,
   }
 }
 

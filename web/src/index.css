@@ -3,8 +3,10 @@
 @theme {
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --color-ink: #0f172a;
-  --color-paper: #f8fafc;
+  --color-paper: #f7f7fc; /* faint accent tint — each accent re-tints it */
   --color-accent: #7c3aed;
+  /* Cards float on two soft layers instead of one hard hairline shadow. */
+  --shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 6px 20px -8px rgb(15 23 42 / 0.08);
 }
 
 /*
@@ -19,7 +21,7 @@
 
 /* ---------- dark mode ---------- */
 [data-mode='dark'] {
-  --color-paper: #0f141e;
+  --color-paper: #12141f; /* violet-tinted night — accents re-tint it */
   --color-ink: #e8edf6;
   --color-white: #1a2130; /* cards & inputs */
 
@@ -76,6 +78,7 @@
 /* ---------- accent palettes (light values) ---------- */
 [data-accent='emerald'] {
   --color-accent: #059669;
+  --color-paper: #f4faf7;
   --color-violet-50: #ecfdf5;
   --color-violet-100: #d1fae5;
   --color-violet-200: #a7f3d0;
@@ -87,6 +90,7 @@
 }
 [data-accent='rose'] {
   --color-accent: #e11d48;
+  --color-paper: #fbf7f8;
   --color-violet-50: #fff1f2;
   --color-violet-100: #ffe4e6;
   --color-violet-200: #fecdd3;
@@ -98,6 +102,7 @@
 }
 [data-accent='sky'] {
   --color-accent: #0284c7;
+  --color-paper: #f4f9fc;
   --color-violet-50: #f0f9ff;
   --color-violet-100: #e0f2fe;
   --color-violet-200: #bae6fd;
@@ -109,6 +114,7 @@
 }
 [data-accent='amber'] {
   --color-accent: #d97706;
+  --color-paper: #fbf9f3;
   --color-violet-50: #fffbeb;
   --color-violet-100: #fef3c7;
   --color-violet-200: #fde68a;
@@ -121,6 +127,7 @@
 
 [data-accent='teal'] {
   --color-accent: #0d9488;
+  --color-paper: #f3faf8;
   --color-violet-50: #f0fdfa;
   --color-violet-100: #ccfbf1;
   --color-violet-200: #99f6e4;
@@ -132,6 +139,7 @@
 }
 [data-accent='indigo'] {
   --color-accent: #4f46e5;
+  --color-paper: #f6f7fc;
   --color-violet-50: #eef2ff;
   --color-violet-100: #e0e7ff;
   --color-violet-200: #c7d2fe;
@@ -143,6 +151,7 @@
 }
 [data-accent='graphite'] {
   --color-accent: #475569;
+  --color-paper: #f8fafc;
   --color-violet-50: #f8fafc;
   --color-violet-100: #f1f5f9;
   --color-violet-200: #e2e8f0;
@@ -156,6 +165,7 @@
 /* ---------- accent palettes in dark mode ---------- */
 [data-mode='dark'][data-accent='emerald'] {
   --color-accent: #10b981;
+  --color-paper: #0e1619;
   --color-violet-50: #0d2b22;
   --color-violet-100: #123a2d;
   --color-violet-200: #17503c;
@@ -167,6 +177,7 @@
 }
 [data-mode='dark'][data-accent='rose'] {
   --color-accent: #f43f5e;
+  --color-paper: #170f14;
   --color-violet-50: #331520;
   --color-violet-100: #431b29;
   --color-violet-200: #5c2438;
@@ -178,6 +189,7 @@
 }
 [data-mode='dark'][data-accent='sky'] {
   --color-accent: #0ea5e9;
+  --color-paper: #0d1520;
   --color-violet-50: #0c2536;
   --color-violet-100: #103147;
   --color-violet-200: #16425e;
@@ -189,6 +201,7 @@
 }
 [data-mode='dark'][data-accent='amber'] {
   --color-accent: #f59e0b;
+  --color-paper: #14120e;
   --color-violet-50: #2f2410;
   --color-violet-100: #3d2f13;
   --color-violet-200: #54401a;
@@ -201,6 +214,7 @@
 
 [data-mode='dark'][data-accent='teal'] {
   --color-accent: #14b8a6;
+  --color-paper: #0d161a;
   --color-violet-50: #0c2925;
   --color-violet-100: #113732;
   --color-violet-200: #164c44;
@@ -212,6 +226,7 @@
 }
 [data-mode='dark'][data-accent='indigo'] {
   --color-accent: #6366f1;
+  --color-paper: #10131f;
   --color-violet-50: #1c2040;
   --color-violet-100: #232a52;
   --color-violet-200: #2e376b;
@@ -223,6 +238,7 @@
 }
 [data-mode='dark'][data-accent='graphite'] {
   --color-accent: #64748b;
+  --color-paper: #0f141e;
   --color-violet-50: #1e2735;
   --color-violet-100: #253143;
   --color-violet-200: #303f56;
@@ -284,6 +300,38 @@ html {
 body {
   color: var(--color-ink);
   font-family: var(--font-sans);
+}
+
+/* A quiet accent glow behind everything — the room changes with the theme. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(
+    64rem 36rem at 82% -12%,
+    color-mix(in srgb, var(--color-accent) 6%, transparent),
+    transparent 62%
+  );
+}
+[data-mode='dark'] body::before {
+  background: radial-gradient(
+    64rem 40rem at 82% -12%,
+    color-mix(in srgb, var(--color-accent) 11%, transparent),
+    transparent 64%
+  );
+}
+
+::selection {
+  background: var(--color-violet-200);
+}
+
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--color-violet-500);
+  outline-offset: 2px;
 }
 
 /* Text that sits on accent-colored fills must stay white in every theme. */

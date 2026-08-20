@@ -10,6 +10,10 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Split basis: income-proportional splitting on take-home or gross, with a live comparison panel (50/50 vs net vs gross, in % and $) on the Budget page.
 - [x] Theme system: light/dark/system/auto (clock-following) + eight accent palettes, per device.
 - [x] Member colors: curated palette with a per-person picker, duplicate-proof within a household.
+- [x] Accent-tinted surfaces + ambient glow: each theme re-tints the page in both modes.
+- [x] Pay model v3: salary or hourly (rate × hours), separate pay frequency, per-paycheck figures.
+- [x] Default budgets with an effective month + one-month overrides; provenance-aware materialization.
+- [x] Number inputs that never keep a stray leading zero.
 - [x] Budgeting methods: envelopes (zero-based), 50/30/20 with adjustable percentages, pay-yourself-first with a savings goal, and plain spending tracking — all over the same engine, with need/want/save tags per category.
 - [ ] Leave/unlink a household (reverse of merging) — needs a data-custody design first.
 - [x] Change password in-app (revokes other sessions), profile edits, session list + sign-out-everywhere.

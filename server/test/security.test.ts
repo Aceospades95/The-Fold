@@ -300,7 +300,7 @@ describe('data export', () => {
       payload: { name: 'Keeper', state: planR.state },
     })
     const dump = (await app.inject({ method: 'GET', url: '/api/export/full.json', cookies: cookie })).json()
-    expect(dump.plan.state.v).toBe(2)
+    expect(dump.plan.state.v).toBe(3)
     expect(dump.plan_scenarios).toHaveLength(1)
     expect(dump.plan_scenarios[0].name).toBe('Keeper')
     expect(Array.isArray(dump.import_profiles)).toBe(true)

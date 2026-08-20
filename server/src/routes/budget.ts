@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import type { BudgetResponse, Category, CategoryDetailResponse, CategoryGroup, TrendsResponse } from '@fold/shared'
 import { categoryDetail, computeBudget, computeTrends, quickFillAmount } from '../lib/budget.js'
+import { applicableDefault, getBudgetDefaults, materializeMonth } from '../lib/defaults.js'
 import { badRequest, id, notFound } from '../lib/util.js'
 
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
@@ -68,13 +69,19 @@ function ownedCategory(app: FastifyInstance, categoryId: string, householdId: st
   if (!row) notFound('Category')
 }
 
-export function setAllocation(app: FastifyInstance, categoryId: string, month: string, amountCents: number): void {
+export function setAllocation(
+  app: FastifyInstance,
+  categoryId: string,
+  month: string,
+  amountCents: number,
+  source: 'manual' | 'default' = 'manual',
+): void {
   app.db
     .prepare(
-      `INSERT INTO allocations (id, category_id, month, amount_cents) VALUES (?, ?, ?, ?)
-       ON CONFLICT (category_id, month) DO UPDATE SET amount_cents = excluded.amount_cents`,
+      `INSERT INTO allocations (id, category_id, month, amount_cents, source) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (category_id, month) DO UPDATE SET amount_cents = excluded.amount_cents, source = excluded.source`,
     )
-    .run(id(), categoryId, month, Math.max(0, amountCents))
+    .run(id(), categoryId, month, Math.max(0, amountCents), source)
 }
 
 export async function budgetRoutes(app: FastifyInstance): Promise<void> {
@@ -93,7 +100,10 @@ export async function budgetRoutes(app: FastifyInstance): Promise<void> {
   app.get('/budget/:month', async (req): Promise<BudgetResponse> => {
     const { month } = req.params as { month: string }
     assertMonth(month)
-    return computeBudget(app.db, req.user.household_id, month)
+    // Untouched months fill from the household's default budget on first view.
+    materializeMonth(app.db, req.user.household_id, month)
+    const entry = applicableDefault(getBudgetDefaults(app.db, req.user.household_id), month)
+    return { ...computeBudget(app.db, req.user.household_id, month), default_effective: entry?.from_month ?? null }
   })
 
   app.get('/budget/:month/categories/:id', async (req): Promise<CategoryDetailResponse> => {

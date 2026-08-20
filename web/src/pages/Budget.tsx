@@ -180,14 +180,24 @@ export default function Budget() {
             left is yours to spend.
           </p>
         </div>
-        <div className="flex items-center gap-1">
-          <button onClick={() => setMonth(shiftMonth(month, -1))} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">
-            <ChevronLeft size={17} />
-          </button>
-          <span className="w-36 text-center text-sm font-semibold">{fmtMonth(month)}</span>
-          <button onClick={() => setMonth(shiftMonth(month, 1))} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">
-            <ChevronRight size={17} />
-          </button>
+        <div className="flex items-center gap-2">
+          {data.default_effective && (
+            <span
+              className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-medium text-violet-600"
+              title={`Untouched envelopes fill from the default budget set on the Plan page (effective ${fmtMonth(data.default_effective)}). Anything you change here stays yours.`}
+            >
+              Default since {fmtMonth(data.default_effective)}
+            </span>
+          )}
+          <div className="flex items-center gap-1">
+            <button onClick={() => setMonth(shiftMonth(month, -1))} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">
+              <ChevronLeft size={17} />
+            </button>
+            <span className="w-36 text-center text-sm font-semibold">{fmtMonth(month)}</span>
+            <button onClick={() => setMonth(shiftMonth(month, 1))} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">
+              <ChevronRight size={17} />
+            </button>
+          </div>
         </div>
       </div>
 

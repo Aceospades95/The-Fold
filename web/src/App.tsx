@@ -95,7 +95,9 @@ function Shell({ children }: { children: ReactNode }) {
               className={({ isActive }) =>
                 cls(
                   'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium',
-                  isActive ? 'bg-violet-50 text-violet-700' : 'text-slate-600 hover:bg-slate-100',
+                  isActive
+                    ? 'bg-gradient-to-r from-violet-50 to-violet-100 text-violet-700'
+                    : 'text-slate-600 hover:bg-slate-100',
                 )
               }
             >

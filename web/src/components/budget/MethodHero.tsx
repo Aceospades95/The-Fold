@@ -6,7 +6,7 @@ import { Card, ProgressBar, cls } from '../../ui'
 const BUCKET_COLORS: Record<string, string> = {
   need: 'var(--color-accent)',
   want: '#f59e0b',
-  save: '#10b981',
+  save: 'var(--color-emerald-500)',
 }
 
 /** 50/30/20 view: three percentage buckets against take-home income. */
@@ -65,7 +65,7 @@ function PayYourselfFirst({ data }: { data: BudgetResponse }) {
             {fmtMoney(putAway)} <span className="font-normal text-slate-400">of {fmtMoney(target)}</span>
           </p>
         </div>
-        <ProgressBar value={putAway} max={target} color="#10b981" />
+        <ProgressBar value={putAway} max={target} color="var(--color-emerald-500)" />
         <p className="mt-1 text-xs text-slate-500">
           {funded
             ? 'Savings funded — everything below is guilt-free.'

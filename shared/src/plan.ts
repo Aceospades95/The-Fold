@@ -103,10 +103,10 @@ export interface PlanState {
 export const PLAN_ALLOC_KEYS: PlanAllocKey[] = ['living', 'savings', 'invest', 'trip', 'personal']
 
 export const PLAN_DED_TYPES: Record<PlanDeductionType, { label: string; income_exempt: boolean; fica_exempt: boolean }> = {
-  s125: { label: 'Medical/dental/vision — pre-tax + FICA-free', income_exempt: true, fica_exempt: true },
-  hsa: { label: 'HSA / FSA via payroll — pre-tax + FICA-free', income_exempt: true, fica_exempt: true },
-  pretax: { label: 'Other pre-tax — income tax only', income_exempt: true, fica_exempt: false },
-  posttax: { label: 'Post-tax (Roth 401k, life ins…)', income_exempt: false, fica_exempt: false },
+  s125: { label: 'Pre-tax · no FICA (health)', income_exempt: true, fica_exempt: true },
+  hsa: { label: 'Pre-tax · no FICA (HSA/FSA)', income_exempt: true, fica_exempt: true },
+  pretax: { label: 'Pre-tax', income_exempt: true, fica_exempt: false },
+  posttax: { label: 'Post-tax', income_exempt: false, fica_exempt: false },
 }
 
 export function planAnnualGross(person: PlanPerson): number {

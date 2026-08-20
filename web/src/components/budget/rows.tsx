@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { BudgetCategoryRow, BudgetGroupRow } from '@fold/shared'
-import { ChevronDown, ChevronRight, RotateCw, Target } from 'lucide-react'
+import { ChevronDown, ChevronRight, ChevronUp, RotateCw, Target } from 'lucide-react'
 import { centsToInput, fmtMoney, parseMoney } from '../../format'
 import { cls, inputCls } from '../../ui'
 
@@ -110,12 +110,16 @@ export function CategoryRow({
   onAllocate,
   onOpen,
   onCover,
+  onMoveUp,
+  onMoveDown,
 }: {
   row: BudgetCategoryRow
   accent: string
   onAllocate: (cents: number) => void
   onOpen: () => void
   onCover: () => void
+  onMoveUp?: () => void
+  onMoveDown?: () => void
 }) {
   const funded = row.allocated_cents + row.carryover_cents
   const pct = funded > 0 ? Math.min(100, (row.spent_cents / funded) * 100) : row.spent_cents > 0 ? 100 : 0
@@ -123,9 +127,29 @@ export function CategoryRow({
   const barColor = overspent ? '#ef4444' : pct > 85 ? '#f59e0b' : accent
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_5.5rem_5rem] items-center gap-x-1.5 gap-y-1 py-2 sm:grid-cols-[minmax(0,1fr)_7rem_6rem_7rem] sm:gap-x-3">
+    <div className="group grid grid-cols-[minmax(0,1fr)_5.5rem_5rem] items-center gap-x-1.5 gap-y-1 py-2 sm:grid-cols-[minmax(0,1fr)_7rem_6rem_7rem] sm:gap-x-3">
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
+          {(onMoveUp || onMoveDown) && (
+            <span className="-my-1 mr-0.5 hidden shrink-0 flex-col opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 sm:flex">
+              <button
+                aria-label={`Move ${row.name} up`}
+                disabled={!onMoveUp}
+                onClick={onMoveUp}
+                className="text-slate-300 hover:text-slate-600 disabled:invisible"
+              >
+                <ChevronUp size={11} />
+              </button>
+              <button
+                aria-label={`Move ${row.name} down`}
+                disabled={!onMoveDown}
+                onClick={onMoveDown}
+                className="text-slate-300 hover:text-slate-600 disabled:invisible"
+              >
+                <ChevronDown size={11} />
+              </button>
+            </span>
+          )}
           <button onClick={onOpen} className="truncate text-sm font-medium hover:text-violet-700 hover:underline">
             {row.name}
           </button>
@@ -138,7 +162,10 @@ export function CategoryRow({
         </div>
         <div className="mt-1 flex items-center gap-2">
           <div className="h-1.5 w-full max-w-56 overflow-hidden rounded-full bg-slate-100">
-            <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: barColor }} />
+            <div
+              className="h-full rounded-full transition-all"
+              style={{ width: `${pct}%`, backgroundImage: `linear-gradient(90deg, color-mix(in srgb, ${barColor} 78%, white), ${barColor})` }}
+            />
           </div>
           {row.carryover_cents !== 0 && (
             <span

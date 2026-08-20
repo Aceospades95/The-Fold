@@ -2,14 +2,14 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import type { PlanPayFreq, PlanState } from '@fold/shared'
 import {
-  PLAN_ALLOC_KEYS,
   STD_DED_MFJ_2026,
   computePlan,
+  defaultBuckets,
   migratePlanState,
   monthlyCents,
   planCatMonthly,
   planId,
-  rebalanceAlloc,
+  setSplitValue,
 } from '@fold/shared'
 import type { Cadence, PayDeduction } from '@fold/shared'
 import { setAllocation } from './budget.js'
@@ -46,20 +46,25 @@ const personSchema = z.object({
 })
 
 const stateSchema = z.object({
-  v: z.literal(3),
+  v: z.literal(4),
   filing: z.enum(['mfj', 'single']),
   tax_mode: z.enum(['auto', 'manual']),
   state_rate: z.number().min(0).max(20),
   std_ded: z.number().min(0).max(1_000_000),
   people: z.tuple([personSchema, personSchema]),
-  alloc: z.object({
-    living: z.number().min(0).max(100),
-    savings: z.number().min(0).max(100),
-    invest: z.number().min(0).max(100),
-    trip: z.number().min(0).max(100),
-    personal: z.number().min(0).max(100),
-  }),
-  alloc_locked: z.array(z.enum(['living', 'savings', 'invest', 'trip', 'personal'])).max(5).default([]),
+  living_pct: z.number().min(0).max(100),
+  personal_pct: z.number().min(0).max(100),
+  buckets: z
+    .array(
+      z.object({
+        id: z.string().max(40),
+        name: z.string().trim().min(1).max(60),
+        pct: z.number().min(0).max(100),
+        goal: z.number().min(0).max(100_000_000).nullable(),
+      }),
+    )
+    .max(12),
+  bucket_locked: z.array(z.string().max(40)).max(14).default([]),
   cats: z
     .array(
       z.object({
@@ -73,7 +78,6 @@ const stateSchema = z.object({
     )
     .max(80),
   personal_mode: z.enum(['equal', 'prop']),
-  trip_goal: z.number().min(0).max(100_000_000),
 })
 
 interface StoredPlan {
@@ -231,14 +235,16 @@ function bootstrapPlan(app: FastifyInstance, householdId: string): PlanState {
     .all(`${from}-01`, householdId) as { id: string; name: string; spent_cents: number }[]
 
   const state: PlanState = {
-    v: 3,
+    v: 4,
     filing: 'mfj',
     tax_mode: 'auto',
     state_rate: 4.95,
     std_ded: STD_DED_MFJ_2026,
     people,
-    alloc: { living: 62, savings: 12, invest: 8, trip: 4, personal: 14 },
-    alloc_locked: [],
+    living_pct: 62,
+    personal_pct: 14,
+    buckets: defaultBuckets(),
+    bucket_locked: [],
     cats: categoryRows.map((row) => ({
       id: planId(),
       name: row.name,
@@ -248,14 +254,13 @@ function bootstrapPlan(app: FastifyInstance, householdId: string): PlanState {
       fold_category_id: row.id,
     })),
     personal_mode: 'equal',
-    trip_goal: 6000,
   }
 
-  // Size the living bucket to roughly cover the pulled categories.
+  // Size the living slice to roughly cover the pulled categories.
   const math = computePlan(state)
   if (math.pool_mo > 0 && math.cat_sum > 0) {
     const livingPct = Math.min(90, Math.max(10, Math.round((math.cat_sum / math.pool_mo) * 1000) / 10))
-    state.alloc = rebalanceAlloc(state.alloc, 'living', livingPct)
+    setSplitValue(state, 'living', livingPct)
   }
   return state
 }
@@ -266,9 +271,9 @@ export async function planRoutes(app: FastifyInstance): Promise<void> {
     if (stored) {
       const migrated = migratePlanState(stored.state)
       if (!migrated) return { state: bootstrapPlan(app, req.user.household_id), saved_at: null, saved_by: null, bootstrapped: true }
-      const wasV1 = (stored.state as { v?: number }).v !== 2
+      const wasOld = (stored.state as { v?: number }).v !== 4
       const linked = reconcilePeople(app, req.user.household_id, migrated)
-      if (wasV1 || linked) {
+      if (wasOld || linked) {
         putSetting(app.db, req.user.household_id, PLAN_KEY, { ...stored, state: migrated })
       }
       return { ...stored, state: migrated }
@@ -279,8 +284,8 @@ export async function planRoutes(app: FastifyInstance): Promise<void> {
 
   app.put('/plan', async (req) => {
     const { state } = z.object({ state: stateSchema }).parse(req.body)
-    const allocTotal = PLAN_ALLOC_KEYS.reduce((sum, k) => sum + state.alloc[k], 0)
-    if (Math.abs(allocTotal - 100) > 1) badRequest('Bucket percentages must total 100.')
+    const allocTotal = state.living_pct + state.personal_pct + state.buckets.reduce((sum, b) => sum + b.pct, 0)
+    if (Math.abs(allocTotal - 100) > 1) badRequest('The pool split must total 100%.')
     const stored: StoredPlan = { state: state as PlanState, saved_at: new Date().toISOString(), saved_by: req.user.name }
     putSetting(app.db, req.user.household_id, PLAN_KEY, stored)
     return { ok: true, saved_at: stored.saved_at }

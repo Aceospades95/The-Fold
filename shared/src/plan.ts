@@ -4,13 +4,31 @@
  * budget. Everything here is pure math over a PlanState so the UI can
  * recalculate on every slider move and scenarios can snapshot the state.
  *
- * Amounts are DOLLARS (annual for incomes, monthly for categories) — this is a
- * planning surface, not a ledger; the tracked side of the app stays in cents.
+ * Amounts are DOLLARS (per paycheck for incomes, monthly for categories) —
+ * this is a planning surface, not a ledger; the tracked side stays in cents.
  */
 
 export type PlanDeductionType = 's125' | 'hsa' | 'pretax' | 'posttax'
 export type PlanFiling = 'mfj' | 'single'
 export type PlanAllocKey = 'living' | 'savings' | 'invest' | 'trip' | 'personal'
+export type PlanPayPer = 'yr' | 'mo' | 'semimonthly' | 'biweekly' | 'weekly'
+
+/** Paychecks per year for each frequency. */
+export const PLAN_PAY_FACTOR: Record<PlanPayPer, number> = {
+  yr: 1,
+  mo: 12,
+  semimonthly: 24,
+  biweekly: 26,
+  weekly: 52,
+}
+
+export const PLAN_PAY_LABELS: Record<PlanPayPer, string> = {
+  yr: 'per year',
+  mo: 'per month',
+  semimonthly: 'twice a month',
+  biweekly: 'every other week',
+  weekly: 'every week',
+}
 
 export interface PlanDeduction {
   id: string
@@ -26,17 +44,21 @@ export interface PlanPerson {
   user_id: string | null
   name: string
   color: string
-  /** Gross annual salary, dollars. */
-  gross: number
-  /** Traditional 401(k) as a percent of gross. */
+  /** Gross pay in dollars, per `gross_per` (e.g. 3500 every other week). */
+  gross_amount: number
+  gross_per: PlanPayPer
+  /** Traditional 401(k) as a percent of gross. Zero = none. */
   k401_pct: number
+  /** Effective total tax rate (fed+state+FICA) when tax_mode is 'manual'. */
+  manual_tax_pct: number
   items: PlanDeduction[]
 }
 
 export interface PlanCategory {
   id: string
   name: string
-  /** Monthly dollars. */
+  /** 'fixed' = amt is monthly dollars; 'pct' = amt is a percent of take-home. */
+  mode: 'fixed' | 'pct'
   amt: number
   /** Percent of the benefit that goes to person A (0–100). */
   benefit_a: number
@@ -45,9 +67,11 @@ export interface PlanCategory {
 }
 
 export interface PlanState {
-  v: 1
+  v: 2
   filing: PlanFiling
-  /** Flat state income tax, percent. */
+  /** 'auto' = 2026 brackets + FICA; 'manual' = each person's own flat rate. */
+  tax_mode: 'auto' | 'manual'
+  /** Flat state income tax, percent (auto mode). */
   state_rate: number
   /** Federal deduction for the couple (halved per person when filing single). */
   std_ded: number
@@ -66,6 +90,16 @@ export const PLAN_DED_TYPES: Record<PlanDeductionType, { label: string; income_e
   hsa: { label: 'HSA / FSA via payroll — pre-tax + FICA-free', income_exempt: true, fica_exempt: true },
   pretax: { label: 'Other pre-tax — income tax only', income_exempt: true, fica_exempt: false },
   posttax: { label: 'Post-tax (Roth 401k, life ins…)', income_exempt: false, fica_exempt: false },
+}
+
+export function planAnnualGross(person: PlanPerson): number {
+  return (Number(person.gross_amount) || 0) * PLAN_PAY_FACTOR[person.gross_per]
+}
+
+/** Monthly dollars a category claims, given the pool. */
+export function planCatMonthly(cat: PlanCategory, poolMo: number): number {
+  const value = Number(cat.amt) || 0
+  return cat.mode === 'pct' ? (value / 100) * poolMo : value
 }
 
 // --- 2026 tax law (IRS tax-year-2026 inflation adjustments) -----------------
@@ -106,7 +140,7 @@ export interface PlanPersonMath {
   /** Federal wages after income-exempt deductions. */
   fw: number
   fica: number
-  /** This person's slice of federal+state income tax, by federal-wage share. */
+  /** This person's slice of federal+state income tax (or their whole manual tax). */
   share_tax: number
   /** What actually lands in the pool from this person, yearly. */
   contrib: number
@@ -131,6 +165,8 @@ export interface PlanMath {
   alloc: Record<PlanAllocKey, number>
   personal_a: number
   personal_b: number
+  /** Effective monthly dollars per planned category (parallel to state.cats). */
+  cat_monthly: number[]
   cat_sum: number
   /** living bucket − planned categories (negative = plan overshoots the bucket). */
   buffer: number
@@ -138,7 +174,8 @@ export interface PlanMath {
 
 export function computePlan(state: PlanState): PlanMath {
   const per = state.people.map((person) => {
-    const k401 = (person.gross * (Number(person.k401_pct) || 0)) / 100
+    const gross = planAnnualGross(person)
+    const k401 = (gross * (Number(person.k401_pct) || 0)) / 100
     let incomeExempt = k401
     let ficaExempt = 0
     let post = 0
@@ -153,10 +190,11 @@ export function computePlan(state: PlanState): PlanMath {
       }
       if (!treatment.income_exempt && !treatment.fica_exempt) post += yearly
     }
-    const fw = Math.max(0, person.gross - incomeExempt)
-    const ficaBase = Math.max(0, person.gross - ficaExempt)
-    const fica = SS_RATE * Math.min(ficaBase, SS_WAGE_BASE_2026) + MEDICARE_RATE * ficaBase
-    return { gross: person.gross, k401, income_exempt: incomeExempt, fica_exempt: ficaExempt, post, health, fw, fica }
+    const fw = Math.max(0, gross - incomeExempt)
+    const ficaBase = Math.max(0, gross - ficaExempt)
+    const fica =
+      state.tax_mode === 'manual' ? 0 : SS_RATE * Math.min(ficaBase, SS_WAGE_BASE_2026) + MEDICARE_RATE * ficaBase
+    return { gross, k401, income_exempt: incomeExempt, fica_exempt: ficaExempt, post, health, fw, fica }
   }) as [Omit<PlanPersonMath, 'share_tax' | 'contrib' | 'share'>, Omit<PlanPersonMath, 'share_tax' | 'contrib' | 'share'>]
 
   const gross = per[0].gross + per[1].gross
@@ -167,7 +205,17 @@ export function computePlan(state: PlanState): PlanMath {
   let taxable: number
   let fed: number
   let stateTax: number
-  if (state.filing === 'mfj') {
+  let manualTaxes: [number, number] = [0, 0]
+  if (state.tax_mode === 'manual') {
+    // Each person's own effective rate on their gross — fed, state, and FICA in one number.
+    manualTaxes = [
+      (per[0].gross * (Number(state.people[0].manual_tax_pct) || 0)) / 100,
+      (per[1].gross * (Number(state.people[1].manual_tax_pct) || 0)) / 100,
+    ]
+    taxable = fwTotal
+    fed = manualTaxes[0] + manualTaxes[1]
+    stateTax = 0
+  } else if (state.filing === 'mfj') {
     taxable = Math.max(0, fwTotal - state.std_ded)
     fed = federalTax(taxable, 'mfj')
     stateTax = (state.state_rate / 100) * taxable
@@ -183,8 +231,9 @@ export function computePlan(state: PlanState): PlanMath {
   const pool = gross - pre - post - tax
   const pool_mo = pool / 12
 
-  const people = per.map((p) => {
-    const share_tax = fwTotal > 0 ? ((fed + stateTax) * p.fw) / fwTotal : 0
+  const people = per.map((p, index) => {
+    const share_tax =
+      state.tax_mode === 'manual' ? manualTaxes[index] : fwTotal > 0 ? ((fed + stateTax) * p.fw) / fwTotal : 0
     const contrib = p.gross - p.income_exempt - p.post - p.fica - share_tax
     return { ...p, share_tax, contrib, share: pool > 0 ? contrib / pool : 0.5 }
   }) as [PlanPersonMath, PlanPersonMath]
@@ -193,7 +242,8 @@ export function computePlan(state: PlanState): PlanMath {
   for (const key of PLAN_ALLOC_KEYS) alloc[key] = ((state.alloc[key] ?? 0) / 100) * pool_mo
   const personal_a = state.personal_mode === 'equal' ? alloc.personal / 2 : alloc.personal * people[0].share
   const personal_b = alloc.personal - personal_a
-  const cat_sum = state.cats.reduce((sum, c) => sum + (Number(c.amt) || 0), 0)
+  const cat_monthly = state.cats.map((c) => planCatMonthly(c, pool_mo))
+  const cat_sum = cat_monthly.reduce((sum, v) => sum + v, 0)
 
   return {
     people,
@@ -210,6 +260,7 @@ export function computePlan(state: PlanState): PlanMath {
     alloc,
     personal_a,
     personal_b,
+    cat_monthly,
     cat_sum,
     buffer: alloc.living - cat_sum,
   }
@@ -249,7 +300,7 @@ export function fairness(state: PlanState, math: PlanMath): {
 } {
   const getsShared = (index: 0 | 1): number =>
     state.cats.reduce(
-      (sum, c) => sum + ((Number(c.amt) || 0) * (index === 0 ? c.benefit_a : 100 - c.benefit_a)) / 100,
+      (sum, c, i) => sum + (math.cat_monthly[i] * (index === 0 ? c.benefit_a : 100 - c.benefit_a)) / 100,
       0,
     ) +
     math.buffer / 2
@@ -265,17 +316,69 @@ export const planId = (): string => `p${planIdCounter++}_${Math.random().toStrin
 
 export function defaultPlanState(): PlanState {
   return {
-    v: 1,
+    v: 2,
     filing: 'mfj',
+    tax_mode: 'auto',
     state_rate: 4.95,
     std_ded: STD_DED_MFJ_2026,
     people: [
-      { user_id: null, name: 'You', color: '#8b5cf6', gross: 85000, k401_pct: 6, items: [] },
-      { user_id: null, name: 'Partner', color: '#10b981', gross: 70000, k401_pct: 5, items: [] },
+      { user_id: null, name: 'You', color: '#8b5cf6', gross_amount: 85000, gross_per: 'yr', k401_pct: 6, manual_tax_pct: 22, items: [] },
+      { user_id: null, name: 'Partner', color: '#10b981', gross_amount: 70000, gross_per: 'yr', k401_pct: 5, manual_tax_pct: 20, items: [] },
     ],
     alloc: { living: 62, savings: 12, invest: 8, trip: 4, personal: 14 },
     cats: [],
     personal_mode: 'equal',
     trip_goal: 6000,
+  }
+}
+
+/** Adopt any stored plan (v1 annual-gross states included) into the v2 shape. */
+export function migratePlanState(input: unknown): PlanState | null {
+  if (!input || typeof input !== 'object') return null
+  const raw = input as Record<string, unknown>
+  if (raw.v !== 1 && raw.v !== 2) return null
+  const base = defaultPlanState()
+  const people = (Array.isArray(raw.people) ? raw.people : []).slice(0, 2).map((p, index) => {
+    const person = (p ?? {}) as Record<string, unknown>
+    const fallback = base.people[index]
+    return {
+      user_id: typeof person.user_id === 'string' ? person.user_id : null,
+      name: typeof person.name === 'string' && person.name ? person.name : fallback.name,
+      color: typeof person.color === 'string' && person.color ? person.color : fallback.color,
+      gross_amount:
+        typeof person.gross_amount === 'number'
+          ? person.gross_amount
+          : typeof person.gross === 'number' // v1: annual `gross`
+            ? person.gross
+            : fallback.gross_amount,
+      gross_per: (person.gross_per as PlanPayPer) in PLAN_PAY_FACTOR ? (person.gross_per as PlanPayPer) : 'yr',
+      k401_pct: typeof person.k401_pct === 'number' ? person.k401_pct : fallback.k401_pct,
+      manual_tax_pct: typeof person.manual_tax_pct === 'number' ? person.manual_tax_pct : fallback.manual_tax_pct,
+      items: Array.isArray(person.items) ? (person.items as PlanDeduction[]) : [],
+    }
+  })
+  while (people.length < 2) people.push(base.people[people.length])
+  const cats = (Array.isArray(raw.cats) ? raw.cats : []).map((c) => {
+    const cat = (c ?? {}) as Record<string, unknown>
+    return {
+      id: typeof cat.id === 'string' ? cat.id : planId(),
+      name: typeof cat.name === 'string' ? cat.name : '',
+      mode: cat.mode === 'pct' ? ('pct' as const) : ('fixed' as const),
+      amt: typeof cat.amt === 'number' ? cat.amt : 0,
+      benefit_a: typeof cat.benefit_a === 'number' ? cat.benefit_a : 50,
+      fold_category_id: typeof cat.fold_category_id === 'string' ? cat.fold_category_id : null,
+    }
+  })
+  return {
+    v: 2,
+    filing: raw.filing === 'single' ? 'single' : 'mfj',
+    tax_mode: raw.tax_mode === 'manual' ? 'manual' : 'auto',
+    state_rate: typeof raw.state_rate === 'number' ? raw.state_rate : base.state_rate,
+    std_ded: typeof raw.std_ded === 'number' ? raw.std_ded : base.std_ded,
+    people: people as [PlanPerson, PlanPerson],
+    alloc: { ...base.alloc, ...(typeof raw.alloc === 'object' && raw.alloc ? (raw.alloc as Record<PlanAllocKey, number>) : {}) },
+    cats,
+    personal_mode: raw.personal_mode === 'prop' ? 'prop' : 'equal',
+    trip_goal: typeof raw.trip_goal === 'number' ? raw.trip_goal : base.trip_goal,
   }
 }

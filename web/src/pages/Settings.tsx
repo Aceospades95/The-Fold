@@ -710,7 +710,7 @@ function HomeAssistantCard() {
     setNote(null)
     try {
       await api.post('/integrations/ha/test')
-      setNote('Webhook reached Home Assistant ✔')
+      setNote('Webhook reached Home Assistant — success')
     } catch (err) {
       setError((err as Error).message)
     }
@@ -829,16 +829,16 @@ function ApiTokensCard() {
   )
 }
 
-const INTEGRATIONS: { name: string; emoji: string; status: 'live' | 'planned'; blurb: string }[] = [
-  { name: 'Google Calendar (feed)', emoji: '📅', status: 'live', blurb: 'Subscribe to the calendar feed below — trips, stops, and due dates show up automatically.' },
-  { name: 'CSV statement import', emoji: '🧾', status: 'live', blurb: 'Import bank/card exports on the Spending page — with auto-rules and duplicate detection.' },
-  { name: 'Net worth tracking', emoji: '📈', status: 'live', blurb: 'Accounts, investments, and debts with balance history — see the Net worth page.' },
-  { name: 'Google Calendar & Tasks (two-way)', emoji: '🔁', status: 'planned', blurb: 'OAuth per person: create real events on a shared calendar, sync assigned to-dos to Google Tasks.' },
-  { name: 'Email reminders', emoji: '📬', status: 'planned', blurb: 'Digest + nudges from your own Gmail or a dedicated app account via SMTP.' },
-  { name: 'Bank sync (SimpleFIN / Plaid)', emoji: '🏦', status: 'planned', blurb: 'Pull real transactions from your banks automatically — CSV import covers the gap today.' },
-  { name: 'Tandoor Recipes', emoji: '🍳', status: 'planned', blurb: 'Pick recipes for the week and push ingredients straight onto the grocery list.' },
-  { name: 'Plex + Overseerr date night', emoji: '🎬', status: 'planned', blurb: 'Queue a movie, dim the lights, dinner from Tandoor — one button.' },
-  { name: 'Shy Local', emoji: '💞', status: 'planned', blurb: 'Pull date ideas from your activity planner into the trip/date wishlist.' },
+const INTEGRATIONS: { name: string; status: 'live' | 'planned'; blurb: string }[] = [
+  { name: 'Google Calendar (feed)', status: 'live', blurb: 'Subscribe to the calendar feed below — trips, stops, and due dates show up automatically.' },
+  { name: 'CSV statement import', status: 'live', blurb: 'Import bank/card exports on the Spending page — with auto-rules and duplicate detection.' },
+  { name: 'Net worth tracking', status: 'live', blurb: 'Accounts, investments, and debts with balance history — see the Net worth page.' },
+  { name: 'Google Calendar & Tasks (two-way)', status: 'planned', blurb: 'OAuth per person: create real events on a shared calendar, sync assigned to-dos to Google Tasks.' },
+  { name: 'Email reminders', status: 'planned', blurb: 'Digest + nudges from your own Gmail or a dedicated app account via SMTP.' },
+  { name: 'Bank sync (SimpleFIN / Plaid)', status: 'planned', blurb: 'Pull real transactions from your banks automatically — CSV import covers the gap today.' },
+  { name: 'Tandoor Recipes', status: 'planned', blurb: 'Pick recipes for the week and push ingredients straight onto the grocery list.' },
+  { name: 'Plex + Overseerr date night', status: 'planned', blurb: 'Queue a movie, dim the lights, dinner from Tandoor — one button.' },
+  { name: 'Shy Local', status: 'planned', blurb: 'Pull date ideas from your activity planner into the trip/date wishlist.' },
 ]
 
 export default function Settings() {
@@ -1113,7 +1113,7 @@ export default function Settings() {
             <div key={integration.name} className="rounded-xl border border-slate-200 p-3.5">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-sm font-semibold">
-                  {integration.emoji} {integration.name}
+                  {integration.name}
                 </p>
                 <Chip className={integration.status === 'live' ? 'bg-emerald-100 text-emerald-700' : undefined}>
                   {integration.status === 'live' ? 'Live' : 'Planned'}

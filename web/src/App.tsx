@@ -3,7 +3,7 @@ import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import type { MeResponse, UserPublic } from '@fold/shared'
 import { BarChart3, CalendarRange, LayoutDashboard, ListChecks, LogOut, MoreHorizontal, PiggyBank, ReceiptText, Settings as SettingsIcon, SlidersHorizontal, Sparkles, TrendingUp } from 'lucide-react'
 import { api, onConnectionChange } from './api'
-import { Avatar, cls } from './ui'
+import { Avatar, Logo, cls } from './ui'
 
 /** One slim banner while the server is unreachable; probes until it's back. */
 function OfflineBanner() {
@@ -80,7 +80,7 @@ function Shell({ children }: { children: ReactNode }) {
     <div className="min-h-screen md:flex">
       <aside className="hidden w-56 shrink-0 flex-col border-r border-slate-200 bg-white px-3 py-5 md:flex md:sticky md:top-0 md:h-screen">
         <div className="mb-6 flex items-center gap-2 px-2">
-          <span className="text-2xl">🪺</span>
+          <Logo size={30} />
           <div>
             <p className="text-base font-bold leading-tight">The Fold</p>
             <p className="text-xs text-slate-500">{me.household.name}</p>
@@ -120,7 +120,7 @@ function Shell({ children }: { children: ReactNode }) {
       <div className="flex min-h-screen flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 md:hidden">
           <div className="flex items-center gap-2">
-            <span className="text-xl">🪺</span>
+            <Logo size={24} />
             <span className="font-bold">The Fold</span>
           </div>
           <button onClick={() => void signOut()} className="p-1.5 text-slate-400">
@@ -222,7 +222,11 @@ export default function App() {
   }, [])
 
   if (phase === 'loading') {
-    return <div className="flex min-h-screen items-center justify-center text-3xl">🪺</div>
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Logo size={40} />
+      </div>
+    )
   }
   if (phase === 'login' || !me)
     return (

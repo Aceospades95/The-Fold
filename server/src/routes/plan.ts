@@ -1,11 +1,22 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import type { PlanState } from '@fold/shared'
-import { PLAN_ALLOC_KEYS, STD_DED_MFJ_2026, computePlan, monthlyCents, planId, rebalanceAlloc } from '@fold/shared'
+import type { PlanPayPer, PlanState } from '@fold/shared'
+import {
+  PLAN_ALLOC_KEYS,
+  PLAN_PAY_FACTOR,
+  STD_DED_MFJ_2026,
+  computePlan,
+  migratePlanState,
+  monthlyCents,
+  planCatMonthly,
+  planId,
+  rebalanceAlloc,
+} from '@fold/shared'
 import type { Cadence, PayDeduction } from '@fold/shared'
+import { setAllocation } from './budget.js'
 import { getMembers } from '../lib/queries.js'
 import { getSetting, putSetting } from '../lib/webhooks.js'
-import { badRequest, currentMonth, daysInMonth, monthRange, notFound, shiftMonth, today } from '../lib/util.js'
+import { badRequest, currentMonth, daysInMonth, id, monthRange, notFound, shiftMonth, today } from '../lib/util.js'
 
 const PLAN_KEY = 'plan'
 const SCENARIOS_KEY = 'plan_scenarios'
@@ -23,14 +34,17 @@ const personSchema = z.object({
   user_id: z.string().max(60).nullable(),
   name: z.string().max(60),
   color: z.string().max(20),
-  gross: z.number().min(0).max(100_000_000),
+  gross_amount: z.number().min(0).max(100_000_000),
+  gross_per: z.enum(['yr', 'mo', 'semimonthly', 'biweekly', 'weekly']),
   k401_pct: z.number().min(0).max(100),
+  manual_tax_pct: z.number().min(0).max(80),
   items: z.array(deductionSchema).max(30),
 })
 
 const stateSchema = z.object({
-  v: z.literal(1),
+  v: z.literal(2),
   filing: z.enum(['mfj', 'single']),
+  tax_mode: z.enum(['auto', 'manual']),
   state_rate: z.number().min(0).max(20),
   std_ded: z.number().min(0).max(1_000_000),
   people: z.tuple([personSchema, personSchema]),
@@ -46,6 +60,7 @@ const stateSchema = z.object({
       z.object({
         id: z.string().max(40),
         name: z.string().max(80),
+        mode: z.enum(['fixed', 'pct']),
         amt: z.number().min(0).max(10_000_000),
         benefit_a: z.number().min(0).max(100),
         fold_category_id: z.string().max(60).nullish(),
@@ -58,12 +73,57 @@ const stateSchema = z.object({
 
 interface StoredPlan {
   state: PlanState
+  saved_at: string | null
+  saved_by: string | null
+}
+
+interface StoredScenario {
+  name: string
+  state: PlanState
   saved_at: string
   saved_by: string
 }
 
-interface StoredScenario extends StoredPlan {
-  name: string
+const CADENCE_TO_PAY_PER: Record<Cadence, PlanPayPer> = {
+  monthly: 'mo',
+  semimonthly: 'semimonthly',
+  biweekly: 'biweekly',
+  weekly: 'weekly',
+  annual: 'yr',
+}
+
+/**
+ * Keep plan people in step with the real household: a person modeled before
+ * their partner signed up ("Partner", no user_id) adopts the new member's
+ * identity the moment one exists — numbers stay exactly as modeled.
+ */
+function reconcilePeople(app: FastifyInstance, householdId: string, state: PlanState): boolean {
+  const members = getMembers(app.db, householdId)
+  const claimed = new Set(state.people.map((p) => p.user_id).filter(Boolean))
+  let changed = false
+  for (const person of state.people) {
+    if (person.user_id) {
+      const member = members.find((m) => m.id === person.user_id)
+      if (member) {
+        const first = member.name.split(' ')[0]
+        if (person.name !== first || person.color !== member.color) {
+          person.name = first
+          person.color = member.color
+          changed = true
+        }
+      }
+      continue
+    }
+    const free = members.find((m) => !claimed.has(m.id))
+    if (free) {
+      person.user_id = free.id
+      person.name = free.name.split(' ')[0]
+      person.color = free.color
+      claimed.add(free.id)
+      changed = true
+    }
+  }
+  return changed
 }
 
 /** Seed a plan from the household's real incomes and shared categories. */
@@ -86,19 +146,31 @@ function bootstrapPlan(app: FastifyInstance, householdId: string): PlanState {
   const people = [0, 1].map((index) => {
     const member = members[index]
     if (!member) {
-      return { user_id: null, name: index === 0 ? 'You' : 'Partner', color: '#10b981', gross: 0, k401_pct: 0, items: [] }
+      return {
+        user_id: null,
+        name: index === 0 ? 'You' : 'Partner',
+        color: index === 0 ? '#8b5cf6' : '#10b981',
+        gross_amount: 0,
+        gross_per: 'yr' as PlanPayPer,
+        k401_pct: 0,
+        manual_tax_pct: 20,
+        items: [],
+      }
     }
     const sources = incomeRows.filter((r) => r.user_id === member.id)
-    let gross = 0
+    let annualGross = 0
     let k401Yearly = 0
+    let taxYearly = 0
     const items: PlanState['people'][0]['items'] = []
     for (const source of sources) {
-      const grossYearly = monthlyCents(source.gross_cents ?? source.amount_cents, source.cadence) * 12
-      gross += grossYearly / 100
+      annualGross += (monthlyCents(source.gross_cents ?? source.amount_cents, source.cadence) * 12) / 100
       const deductions = source.deductions ? (JSON.parse(source.deductions) as PayDeduction[]) : []
       for (const d of deductions) {
-        const yearly = monthlyCents(d.amount_cents, source.cadence) * 12 / 100
-        if (d.kind === 'tax') continue // the plan computes taxes itself
+        const yearly = (monthlyCents(d.amount_cents, source.cadence) * 12) / 100
+        if (d.kind === 'tax') {
+          taxYearly += yearly
+          continue // the plan computes taxes itself
+        }
         if (/401|403/.test(d.name)) {
           k401Yearly += yearly
           continue
@@ -113,12 +185,23 @@ function bootstrapPlan(app: FastifyInstance, householdId: string): PlanState {
         })
       }
     }
+    // Keep the person's real pay rhythm: one source → its cadence and
+    // per-paycheck gross; several → the annual total.
+    let gross_per: PlanPayPer = 'yr'
+    let gross_amount = Math.round(annualGross)
+    if (sources.length === 1) {
+      gross_per = CADENCE_TO_PAY_PER[sources[0].cadence]
+      gross_amount = Math.round(annualGross / PLAN_PAY_FACTOR[gross_per])
+    }
     return {
       user_id: member.id,
       name: member.name.split(' ')[0],
       color: member.color,
-      gross: Math.round(gross),
-      k401_pct: gross > 0 ? Math.round((k401Yearly / gross) * 1000) / 10 : 0,
+      gross_amount,
+      gross_per,
+      k401_pct: annualGross > 0 ? Math.round((k401Yearly / annualGross) * 1000) / 10 : 0,
+      // Their actual withheld taxes make a solid starting manual rate.
+      manual_tax_pct: annualGross > 0 && taxYearly > 0 ? Math.round((taxYearly / annualGross) * 1000) / 10 : 20,
       items,
     }
   }) as PlanState['people']
@@ -140,8 +223,9 @@ function bootstrapPlan(app: FastifyInstance, householdId: string): PlanState {
     .all(`${from}-01`, householdId) as { id: string; name: string; spent_cents: number }[]
 
   const state: PlanState = {
-    v: 1,
+    v: 2,
     filing: 'mfj',
+    tax_mode: 'auto',
     state_rate: 4.95,
     std_ded: STD_DED_MFJ_2026,
     people,
@@ -149,6 +233,7 @@ function bootstrapPlan(app: FastifyInstance, householdId: string): PlanState {
     cats: categoryRows.map((row) => ({
       id: planId(),
       name: row.name,
+      mode: 'fixed' as const,
       amt: Math.round(row.spent_cents / 3 / 100),
       benefit_a: 50,
       fold_category_id: row.id,
@@ -169,7 +254,16 @@ function bootstrapPlan(app: FastifyInstance, householdId: string): PlanState {
 export async function planRoutes(app: FastifyInstance): Promise<void> {
   app.get('/plan', async (req) => {
     const stored = getSetting<StoredPlan>(app.db, req.user.household_id, PLAN_KEY)
-    if (stored) return stored
+    if (stored) {
+      const migrated = migratePlanState(stored.state)
+      if (!migrated) return { state: bootstrapPlan(app, req.user.household_id), saved_at: null, saved_by: null, bootstrapped: true }
+      const wasV1 = (stored.state as { v?: number }).v !== 2
+      const linked = reconcilePeople(app, req.user.household_id, migrated)
+      if (wasV1 || linked) {
+        putSetting(app.db, req.user.household_id, PLAN_KEY, { ...stored, state: migrated })
+      }
+      return { ...stored, state: migrated }
+    }
     // First visit: a plan pre-filled from the real household beats a blank form.
     return { state: bootstrapPlan(app, req.user.household_id), saved_at: null, saved_by: null, bootstrapped: true }
   })
@@ -186,6 +280,81 @@ export async function planRoutes(app: FastifyInstance): Promise<void> {
   /** Re-pull incomes and category averages from the tracked side. */
   app.post('/plan/pull', async (req) => {
     return { state: bootstrapPlan(app, req.user.household_id) }
+  })
+
+  /**
+   * Push the plan into the real budget: each planned category becomes that
+   * month's allocation (creating missing shared categories), so the tracked
+   * side starts living against the model.
+   */
+  app.post('/plan/apply', async (req) => {
+    const body = z
+      .object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/), state: stateSchema.optional() })
+      .parse(req.body)
+    const householdId = req.user.household_id
+    let state: PlanState
+    if (body.state) {
+      state = body.state as PlanState
+      putSetting(app.db, householdId, PLAN_KEY, {
+        state,
+        saved_at: new Date().toISOString(),
+        saved_by: req.user.name,
+      })
+    } else {
+      const stored = getSetting<StoredPlan>(app.db, householdId, PLAN_KEY)
+      const migrated = stored ? migratePlanState(stored.state) : null
+      if (!migrated) badRequest('No saved plan to apply yet.')
+      state = migrated!
+    }
+
+    const math = computePlan(state)
+    const shared = app.db
+      .prepare(`SELECT id, name FROM categories WHERE household_id = ? AND scope = 'shared' AND archived = 0`)
+      .all(householdId) as { id: string; name: string }[]
+    const byId = new Map(shared.map((c) => [c.id, c]))
+    const byName = new Map(shared.map((c) => [c.name.toLowerCase(), c]))
+    let maxSort = (
+      app.db.prepare(`SELECT COALESCE(MAX(sort), 0) AS s FROM categories WHERE household_id = ?`).get(householdId) as {
+        s: number
+      }
+    ).s
+
+    let applied = 0
+    let created = 0
+    let linksChanged = false
+    state.cats.forEach((cat, index) => {
+      const name = cat.name.trim()
+      if (!name) return
+      let target =
+        (cat.fold_category_id && byId.get(cat.fold_category_id)) || byName.get(name.toLowerCase()) || null
+      if (!target) {
+        const newId = id()
+        maxSort += 1
+        app.db
+          .prepare(
+            `INSERT INTO categories (id, household_id, name, emoji, scope, owner_user_id, group_id, rollover, bucket, sort)
+             VALUES (?, ?, ?, NULL, 'shared', NULL, NULL, 0, 'need', ?)`,
+          )
+          .run(newId, householdId, name, maxSort)
+        target = { id: newId, name }
+        byId.set(newId, target)
+        byName.set(name.toLowerCase(), target)
+        created += 1
+      }
+      if (cat.fold_category_id !== target.id) {
+        cat.fold_category_id = target.id
+        linksChanged = true
+      }
+      setAllocation(app, target.id, body.month, Math.round(planCatMonthly(cat, math.pool_mo) * 100))
+      applied += 1
+    })
+    if (linksChanged && !body.state) {
+      const stored = getSetting<StoredPlan>(app.db, householdId, PLAN_KEY)
+      if (stored) putSetting(app.db, householdId, PLAN_KEY, { ...stored, state })
+    } else if (linksChanged && body.state) {
+      putSetting(app.db, householdId, PLAN_KEY, { state, saved_at: new Date().toISOString(), saved_by: req.user.name })
+    }
+    return { applied, created, month: body.month }
   })
 
   app.get('/plan/scenarios', async (req) => {
@@ -210,7 +379,9 @@ export async function planRoutes(app: FastifyInstance): Promise<void> {
     const scenarios = getSetting<StoredScenario[]>(app.db, req.user.household_id, SCENARIOS_KEY) ?? []
     const scenario = scenarios.find((s) => s.name === name)
     if (!scenario) notFound('Scenario')
-    return scenario
+    const migrated = migratePlanState(scenario!.state)
+    if (!migrated) notFound('Scenario')
+    return { ...scenario, state: migrated }
   })
 
   app.delete('/plan/scenarios/:name', async (req) => {

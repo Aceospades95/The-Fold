@@ -68,7 +68,7 @@ function ownedCategory(app: FastifyInstance, categoryId: string, householdId: st
   if (!row) notFound('Category')
 }
 
-function setAllocation(app: FastifyInstance, categoryId: string, month: string, amountCents: number): void {
+export function setAllocation(app: FastifyInstance, categoryId: string, month: string, amountCents: number): void {
   app.db
     .prepare(
       `INSERT INTO allocations (id, category_id, month, amount_cents) VALUES (?, ?, ?, ?)

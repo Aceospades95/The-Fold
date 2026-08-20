@@ -126,7 +126,6 @@ export function CategoryRow({
     <div className="grid grid-cols-[minmax(0,1fr)_5.5rem_5rem] items-center gap-x-1.5 gap-y-1 py-2 sm:grid-cols-[minmax(0,1fr)_7rem_6rem_7rem] sm:gap-x-3">
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
-          <span className="shrink-0 text-base">{row.emoji ?? '🏷️'}</span>
           <button onClick={onOpen} className="truncate text-sm font-medium hover:text-violet-700 hover:underline">
             {row.name}
           </button>
@@ -189,7 +188,6 @@ export function GroupSection({
       >
         <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
           {collapsed ? <ChevronRight size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
-          <span>{group.emoji}</span>
           {group.name}
         </span>
         <span className="text-right text-xs font-medium tabular-nums text-slate-500">

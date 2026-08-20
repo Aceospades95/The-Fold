@@ -131,7 +131,7 @@ export default function Reports() {
               .map((group) => (
                 <li key={group.name} className="flex items-center gap-2 text-sm">
                   <span className="w-32 truncate text-slate-600">
-                    {group.emoji} {group.name}
+                    {group.name}
                   </span>
                   <span className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
                     <span
@@ -192,7 +192,7 @@ export default function Reports() {
                   return (
                     <li key={mover.id} className="flex items-center gap-2 text-sm">
                       <span className="flex-1 truncate text-slate-600">
-                        {mover.emoji} {mover.name}
+                        {mover.name}
                       </span>
                       <span className="text-xs tabular-nums text-slate-400">
                         {fmtMoney(mover.prev_spent_cents, { whole: true })} → {fmtMoney(mover.spent_cents, { whole: true })}

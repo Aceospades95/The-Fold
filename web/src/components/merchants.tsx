@@ -185,7 +185,7 @@ export function DuplicatesModal({
           both if they're genuinely separate purchases.
         </p>
         {pairs.length === 0 ? (
-          <p className="py-4 text-center text-sm text-slate-400">🎉 Nothing suspicious left.</p>
+          <p className="py-4 text-center text-sm text-slate-400">Nothing suspicious left.</p>
         ) : (
           pairs.map((pair) => (
             <div key={`${pair.a.id}:${pair.b.id}`} className="rounded-2xl border border-slate-200 p-3">

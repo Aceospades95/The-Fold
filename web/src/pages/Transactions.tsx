@@ -137,7 +137,7 @@ function ClassifyQueue({
       </div>
       <ErrorNote message={error} />
       {transactions.length === 0 ? (
-        <EmptyState emoji="🎉" title="Nothing left to classify">
+        <EmptyState title="Nothing left to classify">
           Imported transactions land here whenever they arrive without a category.
         </EmptyState>
       ) : (
@@ -263,7 +263,7 @@ export default function Transactions() {
       return named.length > 0 ? `${named[0]} + ${tx.lines.length - 1} more` : `${tx.lines.length} categories`
     }
     const category = tx.lines[0]?.category_id ? categoryById.get(tx.lines[0].category_id) : null
-    return category ? `${category.emoji ?? ''} ${category.name}`.trim() : 'Uncategorized'
+    return category ? category.name : 'Uncategorized'
   }
 
   const suggestion = balances.data?.suggestion
@@ -352,7 +352,6 @@ export default function Transactions() {
             <option value="">All categories</option>
             {categories.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.emoji ? `${c.emoji} ` : ''}
                 {c.name}
               </option>
             ))}
@@ -432,7 +431,7 @@ export default function Transactions() {
             <strong className="tabular-nums">{fmtMoney(suggestion.amount_cents)}</strong>
           </p>
         ) : (
-          <p className="text-sm text-slate-600">✨ All settled — nobody owes anybody.</p>
+          <p className="text-sm text-slate-600">All settled — nobody owes anybody.</p>
         )}
         <div className="flex items-center gap-1">
           <button onClick={() => setMonth(shiftMonth(month, -1))} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">
@@ -454,7 +453,7 @@ export default function Transactions() {
           onReload={reloadAll}
         />
       ) : grouped.length === 0 && !transactions.loading ? (
-        <EmptyState emoji="🧾" title={`Nothing recorded for ${fmtMonth(month)}`}>
+        <EmptyState title={`Nothing recorded for ${fmtMonth(month)}`}>
           Add an expense and choose how to split it.
         </EmptyState>
       ) : (
@@ -501,7 +500,6 @@ export default function Transactions() {
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">
-                          {isSettlement ? '💸 ' : ''}
                           {tx.description}
                         </p>
                         <p className={cls('text-xs', uncategorized ? 'font-medium text-amber-600' : 'text-slate-500')}>

@@ -22,7 +22,8 @@ export function Button({
   className?: string
 }) {
   const styles = {
-    primary: 'bg-violet-600 text-on-accent hover:bg-violet-700 shadow-sm',
+    primary:
+      'bg-violet-600 bg-gradient-to-b from-violet-500 to-violet-600 text-on-accent hover:from-violet-600 hover:to-violet-700 shadow-sm',
     secondary: 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 shadow-sm',
     ghost: 'text-slate-600 hover:bg-slate-100',
     danger: 'bg-white text-red-600 border border-red-200 hover:bg-red-50',
@@ -113,6 +114,52 @@ export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
 
 export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return <select {...props} className={cls(inputCls, 'bg-white', props.className)} />
+}
+
+/**
+ * Numeric field that buffers text while focused. Plain type=number inputs keep
+ * stray leading zeros ("010") because React leaves the DOM alone when the
+ * values compare loosely equal — this owns the text instead, clears a lone 0
+ * on focus, and reports a clean number on every keystroke.
+ */
+export function NumberInput({
+  value,
+  onValue,
+  className,
+  ...rest
+}: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type'> & {
+  value: number
+  onValue: (v: number) => void
+}) {
+  const [text, setText] = useState<string | null>(null)
+  const shown = text ?? (Number.isFinite(value) ? String(value) : '0')
+  return (
+    <input
+      {...rest}
+      type="text"
+      inputMode="decimal"
+      value={shown}
+      onFocus={(e) => {
+        setText(value === 0 ? '' : String(value))
+        e.target.select()
+        rest.onFocus?.(e)
+      }}
+      onChange={(e) => {
+        let raw = e.target.value.replace(/[^0-9.]/g, '')
+        const dot = raw.indexOf('.')
+        if (dot !== -1) raw = raw.slice(0, dot + 1) + raw.slice(dot + 1).replace(/\./g, '')
+        raw = raw.replace(/^0+(?=\d)/, '')
+        setText(raw)
+        const parsed = raw === '' || raw === '.' ? 0 : parseFloat(raw)
+        onValue(Number.isFinite(parsed) ? parsed : 0)
+      }}
+      onBlur={(e) => {
+        setText(null)
+        rest.onBlur?.(e)
+      }}
+      className={cls(className)}
+    />
+  )
 }
 
 /** Dollar input that reports integer cents (null while invalid/empty). */

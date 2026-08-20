@@ -44,7 +44,7 @@ export default function Login({
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-violet-50 via-slate-50 to-emerald-50 p-4">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-violet-50 via-slate-50 to-sky-100 p-4">
       <form onSubmit={submit} className="w-full max-w-sm space-y-4 rounded-2xl border border-slate-200 bg-white p-8 shadow-lg">
         <div className="text-center">
           <Logo size={44} />

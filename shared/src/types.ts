@@ -242,6 +242,8 @@ export interface BudgetResponse {
   pace: BudgetPace | null
   has_allocations: boolean
   prev_month_has_allocations: boolean
+  /** Start month of the default budget in force for this month, if any. */
+  default_effective: string | null
 }
 
 export interface CategoryHistoryPoint {

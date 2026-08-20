@@ -363,6 +363,13 @@ ALTER TABLE transactions ADD COLUMN cleared INTEGER NOT NULL DEFAULT 0;
 UPDATE transactions SET cleared = 1 WHERE import_hash IS NOT NULL;
 `
 
+// v10 — budget defaults: allocations remember whether a human set them or the
+// household's default budget materialized them, so a new default can refresh
+// untouched months without ever clobbering hand-set numbers.
+const SCHEMA_V10 = `
+ALTER TABLE allocations ADD COLUMN source TEXT NOT NULL DEFAULT 'manual';
+`
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: SCHEMA_V1 },
   { version: 2, sql: SCHEMA_V2 },
@@ -373,6 +380,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 7, sql: SCHEMA_V7 },
   { version: 8, sql: SCHEMA_V8 },
   { version: 9, sql: SCHEMA_V9 },
+  { version: 10, sql: SCHEMA_V10 },
 ]
 
 export function openDb(path: string): DatabaseSync {

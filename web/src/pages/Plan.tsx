@@ -1,22 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type React from 'react'
 import { Link } from 'react-router-dom'
-import type { PlanAllocKey, PlanDeductionType, PlanMath, PlanPayPer, PlanPerson, PlanState } from '@fold/shared'
+import type { PlanAllocKey, PlanDeductionType, PlanMath, PlanPayFreq, PlanPerson, PlanState } from '@fold/shared'
 import {
   PLAN_ALLOC_KEYS,
   PLAN_DED_TYPES,
-  PLAN_PAY_FACTOR,
-  PLAN_PAY_LABELS,
+  PLAN_FREQ_FACTOR,
+  PLAN_FREQ_LABELS,
   computePlan,
   fairness,
   planAnnualGross,
   planId,
+  planPerCheck,
   rebalanceAlloc,
 } from '@fold/shared'
 import { ArrowRight, ChevronLeft, ChevronRight, Plus, RefreshCw, X } from 'lucide-react'
 import { api, useApi } from '../api'
 import { currentMonth, fmtMoney, fmtMonth, shiftMonth } from '../format'
-import { Button, Card, EmptyState, cls } from '../ui'
+import { Button, Card, EmptyState, NumberInput, cls } from '../ui'
 
 /* ---------------------------------------------------------------- helpers -- */
 
@@ -58,25 +59,20 @@ function SectionTitle({ n, title, hint }: { n: number; title: string; hint?: Rea
 function NumberField({
   label,
   value,
-  step = 1000,
   onChange,
   width = 'w-28',
 }: {
   label: string
   value: number
-  step?: number
   onChange: (v: number) => void
   width?: string
 }) {
   return (
     <label className="mb-2 grid grid-cols-[1fr_auto] items-center gap-2.5 text-xs text-slate-500">
       <span>{label}</span>
-      <input
-        type="number"
-        min={0}
-        step={step}
+      <NumberInput
         value={Number.isFinite(value) ? value : 0}
-        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+        onValue={onChange}
         className={cls('rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-right text-sm tabular-nums', width)}
       />
     </label>
@@ -344,33 +340,74 @@ function PersonPanel({
           </p>
         </div>
       )}
-      <div className="mb-2 grid grid-cols-[1fr_auto_auto] items-center gap-2 text-xs text-slate-500">
-        <span>Gross pay</span>
-        <input
-          type="number"
-          min={0}
-          step={100}
-          value={Number.isFinite(person.gross_amount) ? person.gross_amount : 0}
-          aria-label="Gross pay amount"
-          onChange={(e) => onChange({ ...person, gross_amount: parseFloat(e.target.value) || 0 })}
-          className="w-24 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-right text-sm tabular-nums"
-        />
+      <div className="mb-2 flex items-center justify-between gap-2 text-xs text-slate-500">
+        <span>Pay</span>
+        <span className="inline-flex overflow-hidden rounded-lg border border-slate-200">
+          {(['salary', 'hourly'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => onChange({ ...person, pay_type: t })}
+              className={cls(
+                'px-2.5 py-1 text-xs font-medium transition-colors',
+                person.pay_type === t ? 'bg-violet-600 text-on-accent' : 'bg-white text-slate-500',
+              )}
+            >
+              {t === 'salary' ? 'Salary' : 'Hourly'}
+            </button>
+          ))}
+        </span>
+      </div>
+      {person.pay_type === 'salary' ? (
+        <div className="mb-2 grid grid-cols-[1fr_auto] items-center gap-2 text-xs text-slate-500">
+          <span>Salary (a year)</span>
+          <NumberInput
+            value={Number.isFinite(person.salary) ? person.salary : 0}
+            aria-label="Annual salary"
+            onValue={(salary) => onChange({ ...person, salary })}
+            className="w-24 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-right text-sm tabular-nums"
+          />
+        </div>
+      ) : (
+        <>
+          <div className="mb-2 grid grid-cols-[1fr_auto] items-center gap-2 text-xs text-slate-500">
+            <span>Hourly rate ($)</span>
+            <NumberInput
+              value={Number.isFinite(person.hourly_rate) ? person.hourly_rate : 0}
+              aria-label="Hourly rate"
+              onValue={(hourly_rate) => onChange({ ...person, hourly_rate })}
+              className="w-24 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-right text-sm tabular-nums"
+            />
+          </div>
+          <div className="mb-2 grid grid-cols-[1fr_auto] items-center gap-2 text-xs text-slate-500">
+            <span>Hours a week</span>
+            <NumberInput
+              value={Number.isFinite(person.hours_per_week) ? person.hours_per_week : 0}
+              aria-label="Hours per week"
+              onValue={(hours_per_week) => onChange({ ...person, hours_per_week })}
+              className="w-24 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-right text-sm tabular-nums"
+            />
+          </div>
+        </>
+      )}
+      <div className="mb-2 grid grid-cols-[1fr_auto] items-center gap-2 text-xs text-slate-500">
+        <span>Paid</span>
         <select
-          value={person.gross_per}
+          value={person.pay_freq}
           aria-label="Pay frequency"
-          onChange={(e) => onChange({ ...person, gross_per: e.target.value as PlanPayPer })}
+          onChange={(e) => onChange({ ...person, pay_freq: e.target.value as PlanPayFreq })}
           className="rounded-lg border border-slate-200 bg-white px-1.5 py-1.5 text-xs text-slate-600"
         >
-          {(Object.keys(PLAN_PAY_FACTOR) as PlanPayPer[]).map((per) => (
-            <option key={per} value={per}>
-              {PLAN_PAY_LABELS[per]}
+          {(Object.keys(PLAN_FREQ_FACTOR) as PlanPayFreq[]).map((freq) => (
+            <option key={freq} value={freq}>
+              {PLAN_FREQ_LABELS[freq]}
             </option>
           ))}
         </select>
       </div>
-      {person.gross_per !== 'yr' && (
-        <p className="-mt-1 mb-2 text-right text-[10px] tabular-nums text-slate-400">= {fmt$(annual)} a year</p>
-      )}
+      <p className="-mt-1 mb-2 text-right text-[10px] tabular-nums text-slate-400">
+        {person.pay_type === 'hourly' && annual > 0 ? `= ${fmt$(annual)} a year · ` : ''}
+        {annual > 0 ? `≈ ${fmt$(planPerCheck(person))} gross per paycheck` : 'Enter pay to see paycheck math'}
+      </p>
       <SliderRow
         label="401(k) — pre-tax (0 = none)"
         value={person.k401_pct}
@@ -393,14 +430,12 @@ function PersonPanel({
                 }}
                 className="w-full rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs"
               />
-              <input
-                type="number"
-                min={0}
+              <NumberInput
                 value={item.amt}
                 aria-label="Deduction amount"
-                onChange={(e) => {
+                onValue={(amt) => {
                   const items = [...person.items]
-                  items[index] = { ...item, amt: parseFloat(e.target.value) || 0 }
+                  items[index] = { ...item, amt }
                   onChange({ ...person, items })
                 }}
                 className="w-full rounded-md border border-slate-200 bg-white px-1.5 py-1 text-right text-xs tabular-nums"
@@ -469,6 +504,7 @@ export default function Plan() {
   const [applyMonth, setApplyMonth] = useState(() =>
     new Date().getDate() >= 20 ? shiftMonth(currentMonth(), 1) : currentMonth(),
   )
+  const [applyMode, setApplyMode] = useState<'default' | 'month'>('default')
   const [applyNote, setApplyNote] = useState<string | null>(null)
   const { data: actuals } = useApi<ActualsResponse>(`/plan/actuals?month=${actualMonth}`)
   const dirtyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -538,19 +574,18 @@ export default function Plan() {
   async function applyToBudget(): Promise<void> {
     if (!plan) return
     const label = fmtMonth(applyMonth)
-    if (
-      !confirm(
-        `Write these planned amounts into the real ${label} budget? Matched envelopes get the plan's number (new shared categories are created as needed); everything stays editable on the Budget page.`,
-      )
-    )
-      return
+    const message =
+      applyMode === 'default'
+        ? `Make this the default budget from ${label} onward? Months from ${label} on fill themselves with these numbers as they come up. Months you've already set by hand — and everything before ${label} — stay exactly as they are.`
+        : `Write these planned amounts into ${label} only? That month becomes its own budget: it overrides the default, and future defaults won't touch it.`
+    if (!confirm(message)) return
     const r = await api.post<{ applied: number; created: number }>('/plan/apply', {
       month: applyMonth,
+      mode: applyMode,
       state: plan,
     })
-    setApplyNote(
-      `${label}: ${r.applied} envelope${r.applied === 1 ? '' : 's'} set${r.created ? `, ${r.created} created` : ''}.`,
-    )
+    const detail = `${r.applied} envelope${r.applied === 1 ? '' : 's'}${r.created ? `, ${r.created} created` : ''}`
+    setApplyNote(applyMode === 'default' ? `Default set from ${label} onward — ${detail}.` : `${label} only — ${detail}.`)
   }
 
   async function pullFromActuals(): Promise<void> {
@@ -741,7 +776,6 @@ export default function Plan() {
               <NumberField
                 label={plan.filing === 'mfj' ? 'Federal deduction (standard: $32,200)' : 'Federal deduction, couple total (half each)'}
                 value={plan.std_ded}
-                step={100}
                 onChange={(v) => update((d) => { d.std_ded = v })}
               />
               <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
@@ -828,12 +862,9 @@ export default function Plan() {
         <div className="mt-4 max-w-md">
           <div className="grid grid-cols-[1fr_110px_70px] items-center gap-2.5 text-xs text-slate-500">
             <span>Trip goal ($)</span>
-            <input
-              type="number"
-              min={0}
-              step={500}
+            <NumberInput
               value={plan.trip_goal}
-              onChange={(e) => update((d) => { d.trip_goal = parseFloat(e.target.value) || 0 })}
+              onValue={(v) => update((d) => { d.trip_goal = v })}
               className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-right text-sm tabular-nums"
             />
             <span className="text-right text-sm font-medium tabular-nums text-slate-700">{tripMonths ? `${tripMonths.toFixed(1)} mo` : '—'}</span>
@@ -881,13 +912,10 @@ export default function Plan() {
                     </td>
                     <td className="py-1.5 pr-2">
                       <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          min={0}
-                          step={cat.mode === 'pct' ? 0.5 : 10}
+                        <NumberInput
                           value={cat.amt}
                           aria-label={cat.mode === 'pct' ? `${cat.name} percent of take-home` : `${cat.name} monthly amount`}
-                          onChange={(e) => update((d) => { d.cats[index].amt = parseFloat(e.target.value) || 0 })}
+                          onValue={(amt) => update((d) => { d.cats[index].amt = amt })}
                           className="w-16 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-right text-xs tabular-nums"
                         />
                         <span className="inline-flex overflow-hidden rounded-md border border-slate-200">
@@ -997,10 +1025,19 @@ export default function Plan() {
             <Plus size={11} className="mr-1 inline" />
             Add category
           </button>
-          <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex flex-wrap items-center gap-1.5">
             <Button variant="secondary" onClick={() => void applyToBudget()}>
               Apply to budget <ArrowRight size={13} />
             </Button>
+            <select
+              value={applyMode}
+              aria-label="How to apply the plan"
+              onChange={(e) => setApplyMode(e.target.value as 'default' | 'month')}
+              className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+            >
+              <option value="default">as our default from</option>
+              <option value="month">for just</option>
+            </select>
             <select
               value={applyMonth}
               aria-label="Which month to apply the plan to"
@@ -1013,6 +1050,7 @@ export default function Plan() {
                 </option>
               ))}
             </select>
+            {applyMode === 'default' && <span className="text-xs text-slate-400">onward</span>}
           </span>
           {applyNote && (
             <span className="text-xs font-medium text-emerald-600">
@@ -1020,6 +1058,10 @@ export default function Plan() {
             </span>
           )}
         </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+          A default fills each month with these numbers from its start month on — months you've hand-tuned (and
+          everything older) never change. “For just” gives one month its own budget that later defaults leave alone.
+        </p>
       </Card>
 
       <Card>

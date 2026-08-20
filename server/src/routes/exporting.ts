@@ -57,6 +57,7 @@ function fullExport(app: FastifyInstance, householdId: string): Record<string, u
     // core data now, so the export carries them (secrets like webhook URLs stay out).
     plan: settingValue(app, householdId, 'plan'),
     plan_scenarios: settingValue(app, householdId, 'plan_scenarios') ?? [],
+    budget_defaults: settingValue(app, householdId, 'budget_defaults') ?? [],
     import_profiles: db
       .prepare(`SELECT key, value FROM settings WHERE household_id = ? AND key LIKE 'import_profile:%'`)
       .all(householdId)

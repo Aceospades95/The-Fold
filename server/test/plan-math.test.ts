@@ -9,13 +9,14 @@ import {
   migratePlanState,
   planAnnualGross,
   planId,
+  planPerCheck,
   rebalanceAlloc,
 } from '@fold/shared'
 
 function base(): PlanState {
   const state = defaultPlanState()
-  state.people[0] = { ...state.people[0], gross_amount: 85000, gross_per: 'yr', k401_pct: 0, items: [] }
-  state.people[1] = { ...state.people[1], gross_amount: 70000, gross_per: 'yr', k401_pct: 0, items: [] }
+  state.people[0] = { ...state.people[0], pay_type: 'salary', salary: 85000, k401_pct: 0, items: [] }
+  state.people[1] = { ...state.people[1], pay_type: 'salary', salary: 70000, k401_pct: 0, items: [] }
   return state
 }
 
@@ -31,30 +32,45 @@ describe('federal tax (2026)', () => {
   })
 })
 
-describe('pay frequency', () => {
-  it('annualizes each cadence correctly', () => {
+describe('pay types and frequency', () => {
+  it('annualizes salary and hourly pay correctly', () => {
     const p = base().people[0]
-    expect(planAnnualGross({ ...p, gross_amount: 3500, gross_per: 'biweekly' })).toBe(91_000)
-    expect(planAnnualGross({ ...p, gross_amount: 4000, gross_per: 'semimonthly' })).toBe(96_000)
-    expect(planAnnualGross({ ...p, gross_amount: 1500, gross_per: 'weekly' })).toBe(78_000)
-    expect(planAnnualGross({ ...p, gross_amount: 7000, gross_per: 'mo' })).toBe(84_000)
+    expect(planAnnualGross({ ...p, pay_type: 'salary', salary: 91_000 })).toBe(91_000)
+    expect(planAnnualGross({ ...p, pay_type: 'hourly', hourly_rate: 25, hours_per_week: 40 })).toBe(52_000)
+    expect(planAnnualGross({ ...p, pay_type: 'hourly', hourly_rate: 43.75, hours_per_week: 40 })).toBe(91_000)
+    // 30 hours part-time.
+    expect(planAnnualGross({ ...p, pay_type: 'hourly', hourly_rate: 20, hours_per_week: 30 })).toBe(31_200)
   })
 
-  it('a biweekly paycheck and its annual equivalent produce the same plan', () => {
-    const yearly = base()
-    yearly.people[0].gross_amount = 91_000
-    const biweekly = base()
-    biweekly.people[0].gross_amount = 3500
-    biweekly.people[0].gross_per = 'biweekly'
-    expect(computePlan(biweekly).pool).toBeCloseTo(computePlan(yearly).pool, 4)
+  it('derives per-paycheck gross from the pay frequency, not the pay type', () => {
+    const p = { ...base().people[0], pay_type: 'salary' as const, salary: 91_000 }
+    expect(planPerCheck({ ...p, pay_freq: 'biweekly' })).toBeCloseTo(3500, 6)
+    expect(planPerCheck({ ...p, pay_freq: 'semimonthly' })).toBeCloseTo(91_000 / 24, 6)
+    expect(planPerCheck({ ...p, pay_freq: 'weekly' })).toBeCloseTo(1750, 6)
+    expect(planPerCheck({ ...p, pay_freq: 'monthly' })).toBeCloseTo(91_000 / 12, 6)
+    const hourly = { ...p, pay_type: 'hourly' as const, hourly_rate: 43.75, hours_per_week: 40 }
+    expect(planPerCheck({ ...hourly, pay_freq: 'biweekly' })).toBeCloseTo(3500, 6)
+  })
+
+  it('an hourly rate and its salary equivalent produce the same plan', () => {
+    const salaried = base()
+    salaried.people[0].salary = 91_000
+    const hourly = base()
+    hourly.people[0].pay_type = 'hourly'
+    hourly.people[0].hourly_rate = 43.75
+    hourly.people[0].hours_per_week = 40
+    expect(computePlan(hourly).pool).toBeCloseTo(computePlan(salaried).pool, 4)
+    // Pay frequency is display-only — it never moves the pool.
+    hourly.people[0].pay_freq = 'weekly'
+    expect(computePlan(hourly).pool).toBeCloseTo(computePlan(salaried).pool, 4)
   })
 })
 
 describe('computePlan', () => {
   it('caps Social Security at the wage base', () => {
     const state = base()
-    state.people[0].gross_amount = 200_000
-    state.people[1].gross_amount = 0
+    state.people[0].salary = 200_000
+    state.people[1].salary = 0
     const math = computePlan(state)
     expect(math.people[0].fica).toBeCloseTo(0.062 * 184_500 + 0.0145 * 200_000, 2)
   })
@@ -84,8 +100,8 @@ describe('computePlan', () => {
 
   it('shows the marriage bonus for a one-earner couple', () => {
     const married = base()
-    married.people[0].gross_amount = 150_000
-    married.people[1].gross_amount = 0
+    married.people[0].salary = 150_000
+    married.people[1].salary = 0
     const single = { ...married, filing: 'single' as const }
     expect(computePlan(married).tax).toBeLessThan(computePlan(single).tax)
   })
@@ -113,7 +129,7 @@ describe('computePlan', () => {
     expect(math.cat_monthly[0]).toBe(2000)
     expect(math.cat_monthly[1]).toBeCloseTo(math.pool_mo * 0.08, 6)
     // Doubling income doubles the pct line, not the fixed one.
-    state.people[0].gross_amount = 170_000
+    state.people[0].salary = 170_000
     const richer = computePlan(state)
     expect(richer.cat_monthly[0]).toBe(2000)
     expect(richer.cat_monthly[1]).toBeGreaterThan(math.cat_monthly[1] * 1.3)
@@ -172,7 +188,7 @@ describe('fairness', () => {
 })
 
 describe('migration', () => {
-  it('adopts a v1 state (annual gross, plain cats) into v2 without losing numbers', () => {
+  it('adopts a v1 state (annual gross, plain cats) into v3 without losing numbers', () => {
     const v1 = {
       v: 1,
       filing: 'mfj',
@@ -188,14 +204,31 @@ describe('migration', () => {
       trip_goal: 8000,
     }
     const migrated = migratePlanState(v1)!
-    expect(migrated.v).toBe(2)
+    expect(migrated.v).toBe(3)
     expect(migrated.tax_mode).toBe('auto')
-    expect(migrated.people[0]).toMatchObject({ gross_amount: 91000, gross_per: 'yr', k401_pct: 6, user_id: 'u1' })
+    expect(migrated.people[0]).toMatchObject({ pay_type: 'salary', salary: 91000, k401_pct: 6, user_id: 'u1' })
     expect(migrated.cats[0]).toMatchObject({ name: 'Rent', mode: 'fixed', amt: 2100, fold_category_id: 'abc' })
     expect(migrated.alloc.living).toBe(50)
-    // v2 passes through untouched values; junk returns null.
-    expect(migratePlanState(migrated)!.people[0].gross_amount).toBe(91000)
+    // v3 passes through untouched values; junk returns null.
+    expect(migratePlanState(migrated)!.people[0].salary).toBe(91000)
     expect(migratePlanState({ v: 9 })).toBeNull()
     expect(migratePlanState('nope')).toBeNull()
+  })
+
+  it('folds a v2 per-interval amount into an annual salary and keeps the rhythm as the frequency', () => {
+    const v2 = {
+      v: 2,
+      people: [
+        { user_id: 'u1', name: 'Jake', color: '#8b5cf6', gross_amount: 3500, gross_per: 'biweekly', k401_pct: 6, manual_tax_pct: 22, items: [] },
+        { user_id: null, name: 'Sam', color: '#0ea5e9', gross_amount: 4000, gross_per: 'mo', k401_pct: 0, manual_tax_pct: 18, items: [] },
+      ],
+    }
+    const migrated = migratePlanState(v2)!
+    expect(migrated.v).toBe(3)
+    expect(migrated.people[0]).toMatchObject({ pay_type: 'salary', salary: 91000, pay_freq: 'biweekly' })
+    expect(migrated.people[1]).toMatchObject({ salary: 48000, pay_freq: 'monthly' })
+    expect(planPerCheck(migrated.people[0])).toBeCloseTo(3500, 6)
+    // The gross is identical before and after the fold.
+    expect(planAnnualGross(migrated.people[0])).toBe(91000)
   })
 })

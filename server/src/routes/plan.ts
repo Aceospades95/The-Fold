@@ -1,9 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import type { PlanPayPer, PlanState } from '@fold/shared'
+import type { PlanPayFreq, PlanState } from '@fold/shared'
 import {
   PLAN_ALLOC_KEYS,
-  PLAN_PAY_FACTOR,
   STD_DED_MFJ_2026,
   computePlan,
   migratePlanState,
@@ -14,6 +13,7 @@ import {
 } from '@fold/shared'
 import type { Cadence, PayDeduction } from '@fold/shared'
 import { setAllocation } from './budget.js'
+import { materializeMonth, saveBudgetDefault } from '../lib/defaults.js'
 import { getMembers } from '../lib/queries.js'
 import { getSetting, putSetting } from '../lib/webhooks.js'
 import { badRequest, currentMonth, daysInMonth, id, monthRange, notFound, shiftMonth, today } from '../lib/util.js'
@@ -34,15 +34,18 @@ const personSchema = z.object({
   user_id: z.string().max(60).nullable(),
   name: z.string().max(60),
   color: z.string().max(20),
-  gross_amount: z.number().min(0).max(100_000_000),
-  gross_per: z.enum(['yr', 'mo', 'semimonthly', 'biweekly', 'weekly']),
+  pay_type: z.enum(['salary', 'hourly']),
+  salary: z.number().min(0).max(100_000_000),
+  hourly_rate: z.number().min(0).max(100_000),
+  hours_per_week: z.number().min(0).max(168),
+  pay_freq: z.enum(['monthly', 'semimonthly', 'biweekly', 'weekly']),
   k401_pct: z.number().min(0).max(100),
   manual_tax_pct: z.number().min(0).max(80),
   items: z.array(deductionSchema).max(30),
 })
 
 const stateSchema = z.object({
-  v: z.literal(2),
+  v: z.literal(3),
   filing: z.enum(['mfj', 'single']),
   tax_mode: z.enum(['auto', 'manual']),
   state_rate: z.number().min(0).max(20),
@@ -84,12 +87,12 @@ interface StoredScenario {
   saved_by: string
 }
 
-const CADENCE_TO_PAY_PER: Record<Cadence, PlanPayPer> = {
-  monthly: 'mo',
+const CADENCE_TO_FREQ: Record<Cadence, PlanPayFreq> = {
+  monthly: 'monthly',
   semimonthly: 'semimonthly',
   biweekly: 'biweekly',
   weekly: 'weekly',
-  annual: 'yr',
+  annual: 'monthly',
 }
 
 /**
@@ -150,8 +153,11 @@ function bootstrapPlan(app: FastifyInstance, householdId: string): PlanState {
         user_id: null,
         name: index === 0 ? 'You' : 'Partner',
         color: index === 0 ? '#8b5cf6' : '#0ea5e9',
-        gross_amount: 0,
-        gross_per: 'yr' as PlanPayPer,
+        pay_type: 'salary' as const,
+        salary: 0,
+        hourly_rate: 0,
+        hours_per_week: 40,
+        pay_freq: 'biweekly' as PlanPayFreq,
         k401_pct: 0,
         manual_tax_pct: 20,
         items: [],
@@ -185,20 +191,18 @@ function bootstrapPlan(app: FastifyInstance, householdId: string): PlanState {
         })
       }
     }
-    // Keep the person's real pay rhythm: one source → its cadence and
-    // per-paycheck gross; several → the annual total.
-    let gross_per: PlanPayPer = 'yr'
-    let gross_amount = Math.round(annualGross)
-    if (sources.length === 1) {
-      gross_per = CADENCE_TO_PAY_PER[sources[0].cadence]
-      gross_amount = Math.round(annualGross / PLAN_PAY_FACTOR[gross_per])
-    }
+    // Keep the person's real pay rhythm: one income source carries its cadence
+    // over as the pay frequency; several sources default to biweekly.
+    const salary = Math.round(annualGross)
     return {
       user_id: member.id,
       name: member.name.split(' ')[0],
       color: member.color,
-      gross_amount,
-      gross_per,
+      pay_type: 'salary' as const,
+      salary,
+      hourly_rate: Math.round((salary / 2080) * 100) / 100,
+      hours_per_week: 40,
+      pay_freq: sources.length === 1 ? CADENCE_TO_FREQ[sources[0].cadence] : ('biweekly' as PlanPayFreq),
       k401_pct: annualGross > 0 ? Math.round((k401Yearly / annualGross) * 1000) / 10 : 0,
       // Their actual withheld taxes make a solid starting manual rate.
       manual_tax_pct: annualGross > 0 && taxYearly > 0 ? Math.round((taxYearly / annualGross) * 1000) / 10 : 20,
@@ -223,7 +227,7 @@ function bootstrapPlan(app: FastifyInstance, householdId: string): PlanState {
     .all(`${from}-01`, householdId) as { id: string; name: string; spent_cents: number }[]
 
   const state: PlanState = {
-    v: 2,
+    v: 3,
     filing: 'mfj',
     tax_mode: 'auto',
     state_rate: 4.95,
@@ -289,7 +293,14 @@ export async function planRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post('/plan/apply', async (req) => {
     const body = z
-      .object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/), state: stateSchema.optional() })
+      .object({
+        month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+        // 'default': becomes the standing budget from `month` onward, filling
+        // untouched months as they come up. 'month': a one-off for that month
+        // alone — it overrides the default and later defaults leave it be.
+        mode: z.enum(['month', 'default']).default('month'),
+        state: stateSchema.optional(),
+      })
       .parse(req.body)
     const householdId = req.user.household_id
     let state: PlanState
@@ -322,6 +333,7 @@ export async function planRoutes(app: FastifyInstance): Promise<void> {
     let applied = 0
     let created = 0
     let linksChanged = false
+    const allocations: Record<string, number> = {}
     state.cats.forEach((cat, index) => {
       const name = cat.name.trim()
       if (!name) return
@@ -345,16 +357,34 @@ export async function planRoutes(app: FastifyInstance): Promise<void> {
         cat.fold_category_id = target.id
         linksChanged = true
       }
-      setAllocation(app, target.id, body.month, Math.round(planCatMonthly(cat, math.pool_mo) * 100))
+      allocations[target.id] = Math.round(planCatMonthly(cat, math.pool_mo) * 100)
       applied += 1
     })
+
+    if (body.mode === 'default') {
+      // Standing budget from this month on: untouched months from here forward
+      // refresh to these numbers; hand-set months and older months stay put.
+      saveBudgetDefault(app.db, householdId, {
+        from_month: body.month,
+        allocations,
+        saved_at: new Date().toISOString(),
+        saved_by: req.user.name,
+      })
+      materializeMonth(app.db, householdId, body.month)
+      if (currentMonth() > body.month) materializeMonth(app.db, householdId, currentMonth())
+    } else {
+      for (const [categoryId, cents] of Object.entries(allocations)) {
+        setAllocation(app, categoryId, body.month, cents)
+      }
+    }
+
     if (linksChanged && !body.state) {
       const stored = getSetting<StoredPlan>(app.db, householdId, PLAN_KEY)
       if (stored) putSetting(app.db, householdId, PLAN_KEY, { ...stored, state })
     } else if (linksChanged && body.state) {
       putSetting(app.db, householdId, PLAN_KEY, { state, saved_at: new Date().toISOString(), saved_by: req.user.name })
     }
-    return { applied, created, month: body.month }
+    return { applied, created, month: body.month, mode: body.mode }
   })
 
   app.get('/plan/scenarios', async (req) => {
@@ -404,6 +434,7 @@ export async function planRoutes(app: FastifyInstance): Promise<void> {
     const target = month ?? currentMonth()
     const { start, end } = monthRange(target)
     const householdId = req.user.household_id
+    materializeMonth(app.db, householdId, target)
     const byCategory = app.db
       .prepare(
         `SELECT c.id AS category_id, c.name, SUM(tl.amount_cents) AS total_cents

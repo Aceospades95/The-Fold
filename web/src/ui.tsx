@@ -215,11 +215,12 @@ export function ProgressBar({
 }) {
   const over = max > 0 && value > max
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : value > 0 ? 100 : 0
+  const fill = over ? '#ef4444' : color
   return (
     <div className={cls('h-2 w-full overflow-hidden rounded-full bg-slate-100', className)}>
       <div
         className="h-full rounded-full transition-all"
-        style={{ width: `${pct}%`, backgroundColor: over ? '#ef4444' : color }}
+        style={{ width: `${pct}%`, backgroundImage: `linear-gradient(90deg, color-mix(in srgb, ${fill} 78%, white), ${fill})` }}
       />
     </div>
   )
@@ -236,7 +237,12 @@ export function Avatar({ name, color, size = 28 }: { name: string; color: string
     <span
       title={name}
       className="inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-on-accent"
-      style={{ width: size, height: size, backgroundColor: color, fontSize: size * 0.4 }}
+      style={{
+        width: size,
+        height: size,
+        backgroundImage: `linear-gradient(135deg, color-mix(in srgb, ${color} 82%, white), ${color} 55%, color-mix(in srgb, ${color} 82%, #0f172a))`,
+        fontSize: size * 0.4,
+      }}
     >
       {initials}
     </span>

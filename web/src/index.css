@@ -323,6 +323,22 @@ body::before {
   );
 }
 
+/*
+ * Money-good follows the accent: "left to assign", positive deltas, and paid
+ * checkmarks read as part of the theme instead of a clashing green. Rose and
+ * amber accents keep true emerald — there, accent-as-good would collide with
+ * danger red / warning amber.
+ */
+:root:not([data-accent='rose']):not([data-accent='amber']) {
+  --color-emerald-50: var(--color-violet-50);
+  --color-emerald-100: var(--color-violet-100);
+  --color-emerald-200: var(--color-violet-200);
+  --color-emerald-500: var(--color-violet-500);
+  --color-emerald-600: var(--color-violet-600);
+  --color-emerald-700: var(--color-violet-700);
+  --color-emerald-800: var(--color-violet-700);
+}
+
 ::selection {
   background: var(--color-violet-200);
 }

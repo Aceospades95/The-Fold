@@ -14,6 +14,8 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Pay model v3: salary or hourly (rate × hours), separate pay frequency, per-paycheck figures.
 - [x] Default budgets with an effective month + one-month overrides; provenance-aware materialization.
 - [x] Number inputs that never keep a stray leading zero.
+- [x] Plan detail pass: removable 401(k), compact pre/post-tax labels, monthly/annual flow toggle with paycheck-rhythm note, accent-family flow palette, row reordering (plan table + real budget), free month picker for apply, fluff-free copy.
+- [x] Themed money color: positive amounts follow the accent (rose/amber keep emerald); gradients on bars, avatars, nav, and section chips.
 - [x] Budgeting methods: envelopes (zero-based), 50/30/20 with adjustable percentages, pay-yourself-first with a savings goal, and plain spending tracking — all over the same engine, with need/want/save tags per category.
 - [ ] Leave/unlink a household (reverse of merging) — needs a data-custody design first.
 - [x] Change password in-app (revokes other sessions), profile edits, session list + sign-out-everywhere.

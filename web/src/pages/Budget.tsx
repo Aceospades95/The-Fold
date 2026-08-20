@@ -166,6 +166,39 @@ export default function Budget() {
     reload()
   }
 
+  /** Swap a row with its neighbor inside its own list, then persist the full display order. */
+  async function moveRow(row: BudgetCategoryRow, delta: number): Promise<void> {
+    if (!data) return
+    const swap = (rows: BudgetCategoryRow[]): BudgetCategoryRow[] | null => {
+      const i = rows.findIndex((r) => r.id === row.id)
+      if (i === -1) return null
+      const j = i + delta
+      if (j < 0 || j >= rows.length) return null
+      const next = [...rows]
+      ;[next[i], next[j]] = [next[j], next[i]]
+      return next
+    }
+    const ids: string[] = []
+    let changed = false
+    for (const { rows } of sharedByGroup.grouped) {
+      const next = swap(rows)
+      if (next) changed = true
+      ids.push(...(next ?? rows).map((r) => r.id))
+    }
+    const nextUngrouped = swap(sharedByGroup.ungrouped)
+    if (nextUngrouped) changed = true
+    ids.push(...(nextUngrouped ?? sharedByGroup.ungrouped).map((r) => r.id))
+    for (const member of data.members) {
+      const rows = data.categories.filter((c) => c.scope === 'personal' && c.owner_user_id === member.id)
+      const next = swap(rows)
+      if (next) changed = true
+      ids.push(...(next ?? rows).map((r) => r.id))
+    }
+    if (!changed) return
+    await api.post('/categories/reorder', { ids })
+    reload()
+  }
+
   const ruleLabel =
     data.split_rule === 'equal' ? 'split 50/50' : data.split_rule === 'proportional' ? 'split by income' : 'split your way'
   const overspent = data.categories.filter((c) => c.available_cents < 0)
@@ -372,7 +405,7 @@ export default function Budget() {
                 + add a category here
               </button>
             ) : (
-              rows.map((row) => (
+              rows.map((row, i) => (
                 <CategoryRow
                   key={row.id}
                   row={row}
@@ -380,6 +413,8 @@ export default function Budget() {
                   onAllocate={(cents) => void allocate(row.id, cents)}
                   onOpen={() => setDrawerId(row.id)}
                   onCover={() => setMoveTarget(row)}
+                  onMoveUp={i > 0 ? () => void moveRow(row, -1) : undefined}
+                  onMoveDown={i < rows.length - 1 ? () => void moveRow(row, 1) : undefined}
                 />
               ))
             )}
@@ -387,7 +422,7 @@ export default function Budget() {
         ))}
         {sharedByGroup.ungrouped.length > 0 && (
           <div className="border-t border-slate-100 pt-1">
-            {sharedByGroup.ungrouped.map((row) => (
+            {sharedByGroup.ungrouped.map((row, i) => (
               <CategoryRow
                 key={row.id}
                 row={row}
@@ -395,6 +430,8 @@ export default function Budget() {
                 onAllocate={(cents) => void allocate(row.id, cents)}
                 onOpen={() => setDrawerId(row.id)}
                 onCover={() => setMoveTarget(row)}
+                onMoveUp={i > 0 ? () => void moveRow(row, -1) : undefined}
+                onMoveDown={i < sharedByGroup.ungrouped.length - 1 ? () => void moveRow(row, 1) : undefined}
               />
             ))}
           </div>
@@ -430,7 +467,7 @@ export default function Budget() {
               {rows.length === 0 ? (
                 <p className="py-3 text-sm text-slate-400">No personal envelopes yet.</p>
               ) : (
-                rows.map((row) => (
+                rows.map((row, i) => (
                   <CategoryRow
                     key={row.id}
                     row={row}
@@ -438,6 +475,8 @@ export default function Budget() {
                     onAllocate={(cents) => void allocate(row.id, cents)}
                     onOpen={() => setDrawerId(row.id)}
                     onCover={() => setMoveTarget(row)}
+                    onMoveUp={i > 0 ? () => void moveRow(row, -1) : undefined}
+                    onMoveDown={i < rows.length - 1 ? () => void moveRow(row, 1) : undefined}
                   />
                 ))
               )}

@@ -53,7 +53,25 @@ function fullExport(app: FastifyInstance, householdId: string): Record<string, u
     ),
     lists: many('SELECT * FROM lists WHERE household_id = ?'),
     list_items: many('SELECT li.* FROM list_items li JOIN lists l ON l.id = li.list_id WHERE l.household_id = ?'),
+    // The plan sandbox and its scenarios live in the settings store — they're
+    // core data now, so the export carries them (secrets like webhook URLs stay out).
+    plan: settingValue(app, householdId, 'plan'),
+    plan_scenarios: settingValue(app, householdId, 'plan_scenarios') ?? [],
+    import_profiles: db
+      .prepare(`SELECT key, value FROM settings WHERE household_id = ? AND key LIKE 'import_profile:%'`)
+      .all(householdId)
+      .map((row) => {
+        const r = row as { key: string; value: string }
+        return { account_id: r.key.slice('import_profile:'.length), profile: JSON.parse(r.value) as unknown }
+      }),
   }
+}
+
+function settingValue(app: FastifyInstance, householdId: string, key: string): unknown {
+  const row = app.db
+    .prepare('SELECT value FROM settings WHERE household_id = ? AND key = ?')
+    .get(householdId, key) as { value: string } | undefined
+  return row ? (JSON.parse(row.value) as unknown) : null
 }
 
 function csvCell(value: unknown): string {

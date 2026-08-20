@@ -12,7 +12,8 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Budgeting methods: envelopes (zero-based), 50/30/20 with adjustable percentages, pay-yourself-first with a savings goal, and plain spending tracking — all over the same engine, with need/want/save tags per category.
 - [ ] Leave/unlink a household (reverse of merging) — needs a data-custody design first.
 - [x] Change password in-app (revokes other sessions), profile edits, session list + sign-out-everywhere.
-- [ ] Password *reset* via email for a forgotten password (depends on the SMTP driver in Phase 2).
+- [x] Password recovery without SMTP: the admin issues a one-time password from the Server card.
+- [ ] Self-serve password reset via email (depends on the SMTP driver in Phase 2).
 
 ## [Shipped] Phase 0 — Foundation (this branch)
 
@@ -51,7 +52,7 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Stores (merchants) with domain-based logos, searchable picker with usual-category suggestions, import auto-matching.
 - [x] Duplicate detection: manual-entry warning, import pre-checks, and a lookalike-pair review with remembered dismissals.
 - [x] Instance admin: first account owns the server; invite-only signup with an admin toggle for open registration.
-- [ ] SimpleFIN Bridge sync: accounts, balances, transactions on a schedule.
+- [x] SimpleFIN Bridge sync: claim token, auto-created accounts, daily posted-transaction pulls as undoable batches, balance snapshots, sync-now.
 - [ ] Auto-rules that split across categories, not just one.
 - [x] Reconciliation: cleared/pending flags per transaction, account-scoped tick-off view, imports arrive cleared.
 - [x] Login rate limiting (10 misses / 15 min per account, bounded memory).

@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path'
 import { buildApp } from './app.js'
 import { openDb } from './db.js'
 import { runDailyBackup } from './lib/backup.js'
+import { syncAllSimplefin } from './lib/simplefin.js'
 import { runDailyJobs } from './lib/webhooks.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -27,6 +28,7 @@ try {
 // runDailyJobs itself no-ops until the calendar date changes.
 function daily(): void {
   runDailyJobs(db).catch((err) => app.log.error(err, 'daily jobs failed'))
+  syncAllSimplefin(db).catch((err) => app.log.error(err, 'simplefin sync failed'))
   try {
     runDailyBackup(db, dbPath)
   } catch (err) {

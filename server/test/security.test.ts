@@ -133,6 +133,54 @@ describe('profile edits', () => {
   })
 })
 
+describe('admin password reset', () => {
+  it('issues a one-time password, kills old sessions, and gates on admin', async () => {
+    const { cookie, cookieB, aId, bId } = await createLinkedHousehold(app, ['Jake', 'Sam'], 'reset.dev')
+
+    const notAdmin = await app.inject({
+      method: 'POST',
+      url: '/api/instance/reset-password',
+      cookies: cookieB,
+      payload: { user_id: aId },
+    })
+    expect(notAdmin.statusCode).toBe(403)
+
+    const self = await app.inject({
+      method: 'POST',
+      url: '/api/instance/reset-password',
+      cookies: cookie,
+      payload: { user_id: aId },
+    })
+    expect(self.statusCode).toBe(400)
+
+    const reset = (
+      await app.inject({
+        method: 'POST',
+        url: '/api/instance/reset-password',
+        cookies: cookie,
+        payload: { user_id: bId },
+      })
+    ).json()
+    expect(reset.temp_password.length).toBeGreaterThanOrEqual(6)
+
+    // Sam's old password and old session are both dead; the temp one works.
+    const oldLogin = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: 'sam@reset.dev', password: 'secret1' },
+    })
+    expect(oldLogin.statusCode).toBe(401)
+    const oldSession = await app.inject({ method: 'GET', url: '/api/me', cookies: cookieB })
+    expect(oldSession.statusCode).toBe(401)
+    const tempLogin = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: 'sam@reset.dev', password: reset.temp_password },
+    })
+    expect(tempLogin.statusCode).toBe(200)
+  })
+})
+
 describe('data export', () => {
   it('dumps the household without password hashes and scopes to the household', async () => {
     const { cookie, aId } = await createLinkedHousehold(app, ['Jake', 'Sam'], 'exp.dev')
@@ -188,6 +236,23 @@ describe('data export', () => {
     expect(lines[1]).toContain('"Costco, with ""quotes"""')
     expect(lines[1]).toContain('Groceries')
     expect(lines[1]).toContain('Jake 50.00; Sam 50.00')
+  })
+
+  it('carries the plan, scenarios, and import profiles in the JSON export', async () => {
+    const { cookie } = await createLinkedHousehold(app, ['Jake', 'Sam'], 'planexp.dev')
+    const planR = (await app.inject({ method: 'GET', url: '/api/plan', cookies: cookie })).json()
+    await app.inject({ method: 'PUT', url: '/api/plan', cookies: cookie, payload: { state: planR.state } })
+    await app.inject({
+      method: 'POST',
+      url: '/api/plan/scenarios',
+      cookies: cookie,
+      payload: { name: 'Keeper', state: planR.state },
+    })
+    const dump = (await app.inject({ method: 'GET', url: '/api/export/full.json', cookies: cookie })).json()
+    expect(dump.plan.state.v).toBe(2)
+    expect(dump.plan_scenarios).toHaveLength(1)
+    expect(dump.plan_scenarios[0].name).toBe('Keeper')
+    expect(Array.isArray(dump.import_profiles)).toBe(true)
   })
 
   it('lets only the admin download the raw backup', async () => {

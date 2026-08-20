@@ -125,6 +125,125 @@ function AccountCard() {
   )
 }
 
+interface SimplefinStatus {
+  connected: boolean
+  connected_at?: string
+  last_sync?: string | null
+  last_error?: string | null
+  accounts?: { sfin_name: string; account_id: string; account_name: string }[]
+}
+
+function SimplefinCard() {
+  const { data, reload } = useApi<SimplefinStatus>('/simplefin')
+  const [token, setToken] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  if (!data) return null
+
+  async function connect(): Promise<void> {
+    setBusy(true)
+    setError(null)
+    try {
+      const r = await api.post<{ connected: boolean; imported?: number; error?: string }>('/simplefin/connect', {
+        setup_token: token.trim(),
+      })
+      setToken('')
+      setNote(
+        r.error
+          ? `Connected, but the first sync hit a snag: ${r.error}`
+          : `Connected — pulled ${r.imported ?? 0} transaction${r.imported === 1 ? '' : 's'} from the last 90 days.`,
+      )
+      reload()
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function syncNow(): Promise<void> {
+    setBusy(true)
+    setError(null)
+    try {
+      const r = await api.post<{ imported: number; skipped: number }>('/simplefin/sync')
+      setNote(`Synced: ${r.imported} new, ${r.skipped} already in.`)
+      reload()
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function disconnect(): Promise<void> {
+    if (!confirm('Disconnect SimpleFIN? Everything already imported stays; new transactions stop arriving.')) return
+    await api.delete('/simplefin')
+    setNote(null)
+    reload()
+  }
+
+  return (
+    <Card>
+      <CardTitle>Bank sync (SimpleFIN)</CardTitle>
+      {data.connected ? (
+        <>
+          <p className="mb-2 text-sm text-slate-500">
+            Connected. New posted transactions pull themselves about once a day (each pull is an undoable import batch
+            headed for the classify queue), and balances update on the Net worth page.
+          </p>
+          <div className="mb-3 divide-y divide-slate-100">
+            {(data.accounts ?? []).map((account) => (
+              <div key={account.account_id} className="flex items-center gap-2 py-1.5 text-sm">
+                <Link2 size={13} className="shrink-0 text-slate-400" />
+                <span className="text-slate-500">{account.sfin_name}</span>
+                <span className="text-slate-300">→</span>
+                <span className="font-medium">{account.account_name}</span>
+              </div>
+            ))}
+          </div>
+          <p className="mb-2 text-xs text-slate-400">
+            Last sync: {data.last_sync ? new Date(data.last_sync).toLocaleString() : 'never'}
+            {data.last_error && <span className="ml-2 font-medium text-amber-600">Last error: {data.last_error}</span>}
+          </p>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => void syncNow()} disabled={busy}>
+              <RefreshCw size={14} /> {busy ? 'Syncing…' : 'Sync now'}
+            </Button>
+            <Button variant="secondary" onClick={() => void disconnect()}>
+              Disconnect
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="mb-3 text-sm text-slate-500">
+            Real bank data without handing anyone your credentials: create an account at{' '}
+            <a href="https://bridge.simplefin.org" target="_blank" rel="noreferrer" className="underline">
+              bridge.simplefin.org
+            </a>{' '}
+            (about $1.50/month), connect your banks there, then paste the one-time <b>setup token</b> it gives you.
+            The Fold claims it, auto-creates matching accounts, and pulls posted transactions daily from then on.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <TextInput
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="Paste your SimpleFIN setup token"
+              className="w-full max-w-md font-mono text-xs"
+            />
+            <Button onClick={() => void connect()} disabled={busy || token.trim().length < 8}>
+              {busy ? 'Connecting…' : 'Connect'}
+            </Button>
+          </div>
+        </>
+      )}
+      {note && <p className="mt-2 text-sm font-medium text-emerald-600">{note}</p>}
+      <ErrorNote message={error} />
+    </Card>
+  )
+}
+
 function DataCard() {
   const { me } = useMe()
   const rows: { href: string; title: string; blurb: string; adminOnly?: boolean }[] = [
@@ -364,12 +483,21 @@ function ServerCard() {
   const { data, reload } = useApi<{ open_signup: boolean; users: number; households: number }>(
     me.user.is_admin === 1 ? '/instance' : null,
   )
+  const [resetResult, setResetResult] = useState<{ name: string; temp_password: string } | null>(null)
   if (me.user.is_admin !== 1 || !data) return null
 
   async function toggle(next: boolean): Promise<void> {
     await api.patch('/instance', { open_signup: next })
     reload()
   }
+
+  async function resetPartner(userId: string, name: string): Promise<void> {
+    if (!confirm(`Reset ${name}'s password? Their current password stops working everywhere and you'll get a one-time password to read to them.`)) return
+    const r = await api.post<{ name: string; temp_password: string }>('/instance/reset-password', { user_id: userId })
+    setResetResult(r)
+  }
+
+  const others = me.household.members.filter((m) => m.id !== me.user.id)
 
   return (
     <Card>
@@ -394,6 +522,27 @@ function ServerCard() {
           </span>
         </span>
       </label>
+      {others.length > 0 && (
+        <div className="mt-3 border-t border-slate-100 pt-3">
+          <p className="mb-2 text-xs font-semibold text-slate-500">Locked out?</p>
+          {others.map((member) => (
+            <div key={member.id} className="flex items-center gap-2.5 py-1">
+              <Avatar name={member.name} color={member.color} size={22} />
+              <span className="flex-1 text-sm">{member.name}</span>
+              <Button variant="secondary" onClick={() => void resetPartner(member.id, member.name)}>
+                <KeyRound size={13} /> Reset password
+              </Button>
+            </div>
+          ))}
+          {resetResult && (
+            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              {resetResult.name}'s one-time password is{' '}
+              <code className="rounded bg-white px-1.5 py-0.5 font-semibold">{resetResult.temp_password}</code> — read
+              it to them now (it won't be shown again) and have them pick their own under Settings, Your account.
+            </p>
+          )}
+        </div>
+      )}
     </Card>
   )
 }
@@ -835,7 +984,7 @@ const INTEGRATIONS: { name: string; status: 'live' | 'planned'; blurb: string }[
   { name: 'Net worth tracking', status: 'live', blurb: 'Accounts, investments, and debts with balance history — see the Net worth page.' },
   { name: 'Google Calendar & Tasks (two-way)', status: 'planned', blurb: 'OAuth per person: create real events on a shared calendar, sync assigned to-dos to Google Tasks.' },
   { name: 'Email reminders', status: 'planned', blurb: 'Digest + nudges from your own Gmail or a dedicated app account via SMTP.' },
-  { name: 'Bank sync (SimpleFIN / Plaid)', status: 'planned', blurb: 'Pull real transactions from your banks automatically — CSV import covers the gap today.' },
+  { name: 'Bank sync (SimpleFIN)', status: 'live', blurb: 'Posted transactions and balances pull themselves daily — connect it in the Bank sync card above.' },
   { name: 'Tandoor Recipes', status: 'planned', blurb: 'Pick recipes for the week and push ingredients straight onto the grocery list.' },
   { name: 'Plex + Overseerr date night', status: 'planned', blurb: 'Queue a movie, dim the lights, dinner from Tandoor — one button.' },
   { name: 'Shy Local', status: 'planned', blurb: 'Pull date ideas from your activity planner into the trip/date wishlist.' },
@@ -1098,6 +1247,7 @@ export default function Settings() {
         </div>
       </Card>
 
+      <SimplefinCard />
       <HomeAssistantCard />
       <ApiTokensCard />
       <DataCard />

@@ -465,6 +465,10 @@ export default function Plan() {
   const [scenarios, setScenarios] = useState<{ name: string; saved_by: string; saved_at: string }[]>([])
   const [scenarioSel, setScenarioSel] = useState('')
   const [actualMonth, setActualMonth] = useState(currentMonth)
+  // Planning usually happens for the month ahead — default there once past mid-month.
+  const [applyMonth, setApplyMonth] = useState(() =>
+    new Date().getDate() >= 20 ? shiftMonth(currentMonth(), 1) : currentMonth(),
+  )
   const [applyNote, setApplyNote] = useState<string | null>(null)
   const { data: actuals } = useApi<ActualsResponse>(`/plan/actuals?month=${actualMonth}`)
   const dirtyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -533,7 +537,7 @@ export default function Plan() {
 
   async function applyToBudget(): Promise<void> {
     if (!plan) return
-    const label = fmtMonth(currentMonth())
+    const label = fmtMonth(applyMonth)
     if (
       !confirm(
         `Write these planned amounts into the real ${label} budget? Matched envelopes get the plan's number (new shared categories are created as needed); everything stays editable on the Budget page.`,
@@ -541,10 +545,12 @@ export default function Plan() {
     )
       return
     const r = await api.post<{ applied: number; created: number }>('/plan/apply', {
-      month: currentMonth(),
+      month: applyMonth,
       state: plan,
     })
-    setApplyNote(`${r.applied} envelope${r.applied === 1 ? '' : 's'} set${r.created ? `, ${r.created} created` : ''}.`)
+    setApplyNote(
+      `${label}: ${r.applied} envelope${r.applied === 1 ? '' : 's'} set${r.created ? `, ${r.created} created` : ''}.`,
+    )
   }
 
   async function pullFromActuals(): Promise<void> {
@@ -991,9 +997,23 @@ export default function Plan() {
             <Plus size={11} className="mr-1 inline" />
             Add category
           </button>
-          <Button variant="secondary" onClick={() => void applyToBudget()}>
-            Apply to {fmtMonth(currentMonth()).split(' ')[0]} budget <ArrowRight size={13} />
-          </Button>
+          <span className="inline-flex items-center gap-1.5">
+            <Button variant="secondary" onClick={() => void applyToBudget()}>
+              Apply to budget <ArrowRight size={13} />
+            </Button>
+            <select
+              value={applyMonth}
+              aria-label="Which month to apply the plan to"
+              onChange={(e) => setApplyMonth(e.target.value)}
+              className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+            >
+              {[currentMonth(), shiftMonth(currentMonth(), 1), shiftMonth(currentMonth(), 2)].map((m) => (
+                <option key={m} value={m}>
+                  {fmtMonth(m)}
+                </option>
+              ))}
+            </select>
+          </span>
           {applyNote && (
             <span className="text-xs font-medium text-emerald-600">
               {applyNote} <Link to="/budget" className="underline">Open the budget</Link>

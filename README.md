@@ -1,4 +1,4 @@
-# 🪺 The Fold
+# The Fold
 
 **A self-hosted home base for two.** Shared budgets, split expenses, trip planning, and household lists — one app, on your own server, built around how *you two* actually run your life.
 

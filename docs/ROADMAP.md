@@ -2,7 +2,7 @@
 
 Phased so every stage ships something you two actually use, and the spine (household · money+splits · dates) never gets rebuilt.
 
-## ✅ Phase 0.5 — Accounts, paychecks, themes
+## [Shipped] Phase 0.5 — Accounts, paychecks, themes
 
 - [x] Self-serve signup: every person starts with their own solo budget.
 - [x] Invite codes: sign up with a code to join a household, or redeem later — a solo budget merges in as that person's personal envelopes (active data kept, untouched starter content dropped, no duplicates).
@@ -14,7 +14,7 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Change password in-app (revokes other sessions), profile edits, session list + sign-out-everywhere.
 - [ ] Password *reset* via email for a forgotten password (depends on the SMTP driver in Phase 2).
 
-## ✅ Phase 0 — Foundation (this branch)
+## [Shipped] Phase 0 — Foundation (this branch)
 
 - Monorepo (Fastify + SQLite API, React SPA), single-container Docker deploy, GHCR publish action.
 - Household setup, two members, session auth.
@@ -26,7 +26,7 @@ Phased so every stage ships something you two actually use, and the spine (house
 - iCal calendar feed (trips, stops, due items) for Google Calendar subscription.
 - Dashboard summary; demo seed data.
 
-## Phase 1c — The Plan page ✅
+## Phase 1c — The Plan page [shipped]
 
 - [x] Modeling sandbox: gross incomes, 401(k) slider, per-paycheck deductions with §125/HSA/pre-tax/post-tax treatments.
 - [x] Computed taxes: 2026 federal brackets (MFJ + two-single-filers toggle), FICA with wage-base cap, flat state rate, adjustable federal deduction.
@@ -58,7 +58,7 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Offline resilience (reconnect banner + auto-refetch), session-expiry redirect, sliding session renewal, `Secure` cookies behind HTTPS, immutable asset caching, Docker healthcheck.
 - [ ] Settings encryption for stored credentials; cookie `Secure` when behind HTTPS.
 
-## Phase 1b — Budget depth ✅
+## Phase 1b — Budget depth [shipped]
 
 - [x] Category groups with collapsible sections and subtotals.
 - [x] Rollover envelopes (leftovers and overspends carry forward); non-rollover envelopes reset monthly.

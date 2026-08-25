@@ -23,7 +23,9 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Budgeting methods: envelopes (zero-based), 50/30/20 with adjustable percentages, pay-yourself-first with a savings goal, and plain spending tracking — all over the same engine, with need/want/save tags per category.
 - [ ] Leave/unlink a household (reverse of merging) — needs a data-custody design first.
 - [x] Change password in-app (revokes other sessions), profile edits, session list + sign-out-everywhere.
-- [x] Password recovery without SMTP: the admin issues a one-time password from the Server card.
+- [x] Password recovery without SMTP: the admin issues a one-time password from the Server card — for any account on the instance, across households.
+- [x] Admin accounts view: every account with email, household + member count, a "not linked" flag on stranded solo accounts, join/last-sign-in dates, per-row password reset, and the server version.
+- [x] Signup guard: creating an account with no invite code (while others exist) asks for confirmation first, so a partner can't accidentally land in a separate budget; linked households can keep generating invite codes (up to 4 members).
 - [ ] Self-serve password reset via email (depends on the SMTP driver in Phase 2).
 
 ## [Shipped] Phase 0 — Foundation (this branch)

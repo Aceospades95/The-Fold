@@ -232,6 +232,55 @@ describe('admin password reset', () => {
   })
 })
 
+describe('instance accounts view', () => {
+  it('lists every account across households, flags solo ones, and gates on admin', async () => {
+    const { cookie, cookieB } = await createLinkedHousehold(app, ['Jake', 'Sam'], 'inst.dev')
+
+    // Open signup, then a third person signs up solo — the "stranded partner" shape.
+    await app.inject({ method: 'PATCH', url: '/api/instance', cookies: cookie, payload: { open_signup: true } })
+    const solo = await app.inject({
+      method: 'POST',
+      url: '/api/signup',
+      payload: { name: 'Sanya Lee', email: 'sanya@inst.dev', password: 'secret1' },
+    })
+    expect(solo.statusCode).toBe(200)
+
+    const denied = await app.inject({ method: 'GET', url: '/api/instance/users', cookies: cookieB })
+    expect(denied.statusCode).toBe(403)
+
+    const r = (await app.inject({ method: 'GET', url: '/api/instance/users', cookies: cookie })).json()
+    expect(r.users).toHaveLength(3)
+    const sanya = r.users.find((u: { email: string }) => u.email === 'sanya@inst.dev')
+    expect(sanya.household_members).toBe(1)
+    expect(sanya.is_admin).toBe(0)
+    const jake = r.users.find((u: { email: string }) => u.email === 'jake@inst.dev')
+    expect(jake.is_admin).toBe(1)
+    expect(jake.household_members).toBe(2)
+    expect(jake.household_name).toBeTruthy()
+
+    // The admin can reset a password across households — the stranded-partner rescue.
+    const reset = (
+      await app.inject({
+        method: 'POST',
+        url: '/api/instance/reset-password',
+        cookies: cookie,
+        payload: { user_id: sanya.id },
+      })
+    ).json()
+    expect(reset.temp_password.length).toBeGreaterThanOrEqual(6)
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: 'sanya@inst.dev', password: reset.temp_password },
+    })
+    expect(login.statusCode).toBe(200)
+
+    // And GET /instance reports the version for stale-deploy diagnosis.
+    const info = (await app.inject({ method: 'GET', url: '/api/instance', cookies: cookie })).json()
+    expect(info.version).toBeTruthy()
+  })
+})
+
 describe('data export', () => {
   it('dumps the household without password hashes and scopes to the household', async () => {
     const { cookie, aId } = await createLinkedHousehold(app, ['Jake', 'Sam'], 'exp.dev')

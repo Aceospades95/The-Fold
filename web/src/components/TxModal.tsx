@@ -301,7 +301,8 @@ export default function TxModal({
     if (existing && existing.lines.length > 0) {
       return existing.lines.map((line) => ({ category_id: line.category_id ?? '', amount_cents: Math.abs(line.amount_cents) }))
     }
-    return [{ category_id: categories.find((c) => c.scope === 'shared')?.id ?? '', amount_cents: existing ? Math.abs(existing.amount_cents) : null }]
+    // No silent default: a new expense starts with no category so the pick is deliberate.
+    return [{ category_id: '', amount_cents: existing ? Math.abs(existing.amount_cents) : null }]
   })
   const [mode, setMode] = useState<SplitMode>(() => {
     if (!existing) return members.length > 1 ? 'equal' : 'none'
@@ -332,10 +333,13 @@ export default function TxModal({
         scope === 'shared' ? c.scope === 'shared' : c.scope === 'personal' && c.owner_user_id === scope,
       )
   function pickScope(next: 'shared' | string): void {
+    // Re-clicking the scope you're already in must not throw away the category.
+    if (next === scope) return
+    // Shared has a dozen envelopes — leave the pick to the human rather than
+    // silently defaulting to whichever comes first (that's how dinner lands in
+    // Rent). Personal envelopes are few and obviously theirs, so the first is fine.
     const first =
-      next === 'shared'
-        ? categories.find((c) => c.scope === 'shared')
-        : categories.find((c) => c.scope === 'personal' && c.owner_user_id === next)
+      next === 'shared' ? undefined : categories.find((c) => c.scope === 'personal' && c.owner_user_id === next)
     setLines([{ category_id: first?.id ?? '', amount_cents: amount }])
     // Shared splits by the household default; personal charges land on their owner
     // no matter who paid (settle-up keeps score).

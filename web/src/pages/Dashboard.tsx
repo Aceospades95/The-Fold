@@ -205,8 +205,8 @@ export default function Dashboard() {
               <Avatar name={partner.name} color={partner.color} size={36} />
               <div>
                 <p className="font-semibold">
-                  {iOwe && `You owe ${partner.name} ${fmtMoney(suggestion.amount_cents)}`}
-                  {owedToMe && `${partner.name} owes you ${fmtMoney(suggestion.amount_cents)}`}
+                  {iOwe && `You owe ${partner.name.split(' ')[0]} ${fmtMoney(suggestion.amount_cents)}`}
+                  {owedToMe && `${partner.name.split(' ')[0]} owes you ${fmtMoney(suggestion.amount_cents)}`}
                 </p>
                 <p className="text-xs text-slate-500">Across everything you’ve split so far</p>
               </div>

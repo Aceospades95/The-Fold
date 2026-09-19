@@ -447,7 +447,7 @@ export default function Budget() {
               <div className="flex items-center gap-2.5">
                 <Avatar name={member.name} color={member.color} size={26} />
                 <div>
-                  <h2 className="font-semibold">{isMe ? 'My personal budget' : `${member.name}’s personal budget`}</h2>
+                  <h2 className="font-semibold">{isMe ? 'My personal budget' : `${member.name.split(' ')[0]}’s personal budget`}</h2>
                   <p className="text-xs text-slate-500">
                     {fmtMoney(member.personal_spent_cents)} spent of {fmtMoney(member.personal_allocated_cents)} ·{' '}
                     {fmtMoney(member.personal_available_cents)} available

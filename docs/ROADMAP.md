@@ -25,6 +25,9 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Change password in-app (revokes other sessions), profile edits, session list + sign-out-everywhere.
 - [x] Password recovery without SMTP: the admin issues a one-time password from the Server card — for any account on the instance, across households.
 - [x] Admin accounts view: every account with email, household + member count, a "not linked" flag on stranded solo accounts, join/last-sign-in dates, per-row password reset, and the server version.
+- [x] Two-person acceptance suite (server/test/two-person.test.ts): the whole Jake + Sanya lifecycle — link, colors, incomes, split rules, shared envelopes both see, shared expenses + balances + settle-up, personal budgets isolated per person, plan for two, default apply, lists assignment, trips + calendar feed, net worth, reports/review/insights/export, admin reset.
+- [x] Household auto-names itself "Jake & Sanya" when the second person joins (custom names untouched); first names on the balance line and partner budget card.
+- [x] New expenses no longer silently default to the first shared category — the pick is deliberate, and an unpicked one lands in the classify queue.
 - [x] Signup guard: creating an account with no invite code (while others exist) asks for confirmation first, so a partner can't accidentally land in a separate budget; linked households can keep generating invite codes (up to 4 members).
 - [ ] Self-serve password reset via email (depends on the SMTP driver in Phase 2).
 

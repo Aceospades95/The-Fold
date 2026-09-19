@@ -14,7 +14,7 @@ import {
   verifyPassword,
 } from '../auth.js'
 import { MEMBER_PALETTE } from '@fold/shared'
-import { normalizeInviteCode, redeemInviteCode } from '../lib/merge.js'
+import { normalizeInviteCode, redeemInviteCode, refreshHouseholdName } from '../lib/merge.js'
 import { MEMBER_COLORS, badRequest, id, now } from '../lib/util.js'
 
 const signupBody = z.object({
@@ -182,6 +182,7 @@ export async function publicAuthRoutes(app: FastifyInstance): Promise<void> {
         .prepare('UPDATE invites SET used_by_user_id = ?, used_at = ? WHERE code = ?')
         .run(userId, now(), normalizeInviteCode(body.invite_code))
       seedPersonalDefaults(app.db, householdId, userId)
+      refreshHouseholdName(app.db, householdId)
     } else {
       const householdId = id()
       const firstName = body.name.split(/\s+/)[0]

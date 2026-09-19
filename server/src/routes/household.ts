@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { BudgetMethod, InviteInfo, MeResponse, SplitBasis, SplitRule } from '@fold/shared'
 import { hashPassword } from '../auth.js'
 import { resolveMethodConfig } from '../lib/budget.js'
-import { createInvite, formatInviteCode, redeemInviteCode } from '../lib/merge.js'
+import { createInvite, formatInviteCode, redeemInviteCode, refreshHouseholdName } from '../lib/merge.js'
 import { getMembers } from '../lib/queries.js'
 import { badRequest, id, now } from '../lib/util.js'
 import { nextMemberColor, seedPersonalDefaults } from './auth.js'
@@ -45,6 +45,9 @@ interface HouseholdRow {
 
 export async function householdRoutes(app: FastifyInstance): Promise<void> {
   app.get('/me', async (req): Promise<MeResponse> => {
+    // Households linked before auto-naming existed still read "Jake’s budget";
+    // this is idempotent and writes nothing once the name is right or custom.
+    refreshHouseholdName(app.db, req.user.household_id)
     const hh = app.db
       .prepare(
         'SELECT id, name, split_rule, split_basis, custom_split, budget_method, method_config, calendar_token FROM households WHERE id = ?',
@@ -170,6 +173,7 @@ export async function householdRoutes(app: FastifyInstance): Promise<void> {
         now(),
       )
     seedPersonalDefaults(app.db, req.user.household_id, userId)
+    refreshHouseholdName(app.db, req.user.household_id)
     return { id: userId }
   })
 

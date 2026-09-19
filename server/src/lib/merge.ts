@@ -142,6 +142,27 @@ function mergeHouseholds(db: DatabaseSync, userId: string, targetHouseholdId: st
 }
 
 /**
+ * A household still wearing its default solo name ("Jake’s budget") becomes
+ * "Jake & Sanya" the moment a second person joins — a name either of them
+ * can still change in Settings. A custom name is never touched.
+ */
+export function refreshHouseholdName(db: DatabaseSync, householdId: string): void {
+  const household = db.prepare('SELECT name FROM households WHERE id = ?').get(householdId) as
+    | { name: string }
+    | undefined
+  if (!household) return
+  const members = db
+    .prepare('SELECT name FROM users WHERE household_id = ? ORDER BY created_at')
+    .all(householdId) as { name: string }[]
+  if (members.length < 2) return
+  const firsts = members.map((m) => m.name.trim().split(/\s+/)[0]).filter(Boolean)
+  const isDefault = /’s budget$|'s budget$/.test(household.name) || /^[^&,]+ & [^&,]+$/.test(household.name) || /^[^&]+, .+ & .+$/.test(household.name)
+  if (!isDefault) return
+  const joined = firsts.length === 2 ? `${firsts[0]} & ${firsts[1]}` : `${firsts.slice(0, -1).join(', ')} & ${firsts[firsts.length - 1]}`
+  if (joined !== household.name) db.prepare('UPDATE households SET name = ? WHERE id = ?').run(joined, householdId)
+}
+
+/**
  * Redeem an invite. With a userId, the user's solo budget is merged into the
  * inviter's household and the code is consumed. With userId null (signup with
  * a code), the invite is only validated — the caller creates the user in the
@@ -160,6 +181,7 @@ export function redeemInviteCode(
     if (already.household_id === invite.household_id) badRequest('You’re already part of that household.')
     mergeHouseholds(db, userId, invite.household_id)
     db.prepare('UPDATE invites SET used_by_user_id = ?, used_at = ? WHERE code = ?').run(userId, now(), invite.code)
+    refreshHouseholdName(db, invite.household_id)
   }
   return { householdId: invite.household_id }
 }

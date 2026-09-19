@@ -370,6 +370,21 @@ const SCHEMA_V10 = `
 ALTER TABLE allocations ADD COLUMN source TEXT NOT NULL DEFAULT 'manual';
 `
 
+// v11 — households remember whether their name was typed by a person. Auto
+// names ("Jacob and Sanya’s budget") follow the members; typed names never move.
+// Anything that doesn't look like a generated name is treated as typed.
+const SCHEMA_V11 = `
+ALTER TABLE households ADD COLUMN name_custom INTEGER NOT NULL DEFAULT 0;
+UPDATE households SET name_custom = 1
+ WHERE NOT (name LIKE '%’s budget' OR name LIKE '%''s budget' OR name LIKE '% & %');
+`
+
+// v12 — repeating list items (weekly chores): ticking one off advances its due
+// date instead of finishing it; completed_at then records the last time it was done.
+const SCHEMA_V12 = `
+ALTER TABLE list_items ADD COLUMN repeat TEXT;
+`
+
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: SCHEMA_V1 },
   { version: 2, sql: SCHEMA_V2 },
@@ -381,6 +396,8 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 8, sql: SCHEMA_V8 },
   { version: 9, sql: SCHEMA_V9 },
   { version: 10, sql: SCHEMA_V10 },
+  { version: 11, sql: SCHEMA_V11 },
+  { version: 12, sql: SCHEMA_V12 },
 ]
 
 export function openDb(path: string): DatabaseSync {

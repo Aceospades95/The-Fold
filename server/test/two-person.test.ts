@@ -60,14 +60,28 @@ describe('1 · two logins, one household', () => {
     const colors = meJ.household.members.map((m: { color: string }) => m.color)
     expect(new Set(colors).size).toBe(2)
     // The solo default name ("Jake’s budget") became "ours" the moment she joined.
-    expect(meS.household.name).toBe('Jake & Sanya')
-    expect(meJ.household.name).toBe('Jake & Sanya')
+    expect(meS.household.name).toBe('Jake and Sanya’s budget')
+    expect(meJ.household.name).toBe('Jake and Sanya’s budget')
+    expect(meJ.household.name_custom).toBe(false)
   })
 
-  it('a custom household name is never overwritten', async () => {
+  it('the auto name follows profile renames; a typed name is never overwritten', async () => {
+    await as(jake, 'PATCH', '/api/auth/profile', { name: 'Jacob Wright' })
+    expect((await as(sanya, 'GET', '/api/me')).household.name).toBe('Jacob and Sanya’s budget')
+
     await as(jake, 'PATCH', '/api/household', { name: 'The Wright-Lee house' })
+    const typed = await as(sanya, 'GET', '/api/me')
+    expect(typed.household.name).toBe('The Wright-Lee house')
+    expect(typed.household.name_custom).toBe(true)
+    await as(jake, 'PATCH', '/api/auth/profile', { name: 'Jake Wright' })
     expect((await as(sanya, 'GET', '/api/me')).household.name).toBe('The Wright-Lee house')
-    await as(jake, 'PATCH', '/api/household', { name: 'Jake & Sanya' })
+
+    // Saving other household settings must not turn the auto name into a typed one.
+    await as(jake, 'PATCH', '/api/household', { reset_name: true })
+    await as(jake, 'PATCH', '/api/household', { split_rule: 'proportional' })
+    const reset = await as(jake, 'GET', '/api/me')
+    expect(reset.household.name).toBe('Jake and Sanya’s budget')
+    expect(reset.household.name_custom).toBe(false)
   })
 
   it('only the admin sees server controls; colors cannot collide', async () => {
@@ -81,6 +95,15 @@ describe('1 · two logins, one household', () => {
     await as(sanya, 'PATCH', '/api/auth/profile', { color: '#f43f5e' })
     const seenByJake = await as(jake, 'GET', '/api/me')
     expect(seenByJake.household.members.find((m: { id: string }) => m.id === sanyaId).color).toBe('#f43f5e')
+  })
+
+  it('an invite code can be revoked before anyone uses it', async () => {
+    const invite = await as(jake, 'POST', '/api/invites')
+    const active = (list: { invites: { code: string }[] }) => list.invites.some((i) => i.code === invite.code)
+    expect(active(await as(jake, 'GET', '/api/invites'))).toBe(true)
+    await as(sanya, 'DELETE', `/api/invites/${invite.code}`)
+    expect(active(await as(jake, 'GET', '/api/invites'))).toBe(false)
+    expect(await status(jake, 'DELETE', `/api/invites/${invite.code}`)).toBe(400)
   })
 })
 
@@ -332,9 +355,119 @@ describe('6 · lists, trips, and net worth are shared too', () => {
     expect(nwS.net_cents).toBe(900000)
     expect(nwS.accounts).toHaveLength(3)
   })
+
+  it('a repeating chore comes back with a new due date instead of finishing', async () => {
+    const lists = (await as(jake, 'GET', '/api/lists')).lists
+    const chores = lists.find((l: { type: string }) => l.type === 'chores')
+    const item = await as(jake, 'POST', `/api/lists/${chores.id}/items`, {
+      text: 'Water the plants',
+      assignee_user_id: sanyaId,
+      due_date: today,
+      repeat: 'weekly',
+    })
+    const done = await as(sanya, 'PATCH', `/api/list-items/${item.id}`, { done: 1 })
+    const nextWeek = new Date(Date.parse(`${today}T00:00:00Z`) + 7 * 86_400_000).toISOString().slice(0, 10)
+    expect(done.next_due).toBe(nextWeek)
+
+    const after = (await as(sanya, 'GET', '/api/lists')).lists.find((l: { id: string }) => l.id === chores.id)
+    const row = after.items.find((i: { id: string }) => i.id === item.id)
+    expect(row.done).toBe(0)
+    expect(row.due_date).toBe(nextWeek)
+    expect(row.repeat).toBe('weekly')
+    expect(row.completed_at).toBeTruthy()
+    // Still on Sanya's plate, now for next week; a one-off tick finishes for good.
+    const tasks = (await as(sanya, 'GET', '/api/summary')).my_tasks
+    expect(tasks.find((t: { id: string }) => t.id === item.id)?.due_date).toBe(nextWeek)
+    await as(sanya, 'PATCH', `/api/list-items/${item.id}`, { repeat: null })
+    expect((await as(sanya, 'PATCH', `/api/list-items/${item.id}`, { done: 1 })).next_due).toBeNull()
+    expect((await as(sanya, 'GET', '/api/summary')).my_tasks.some((t: { id: string }) => t.id === item.id)).toBe(false)
+  })
 })
 
-describe('7 · every reporting surface works for both logins', () => {
+describe('7 · the dashboard says what wants a look', () => {
+  it('overdue chores, bare transactions, upcoming bills, duplicates, and blown envelopes surface for both', async () => {
+    const cats = (await as(jake, 'GET', '/api/categories')).categories
+    const lists = (await as(jake, 'GET', '/api/lists')).lists
+    const chores = lists.find((l: { type: string }) => l.type === 'chores')
+    await as(sanya, 'POST', `/api/lists/${chores.id}/items`, { text: 'Fix the gate', assignee_user_id: jakeId, due_date: '2020-01-01' })
+    await as(jake, 'POST', '/api/transactions', {
+      date: today,
+      description: 'Mystery receipt',
+      amount_cents: 1234,
+      category_id: null,
+      payer_user_id: jakeId,
+      splits: [{ user_id: jakeId, share_cents: 1234 }],
+    })
+    for (let i = 0; i < 2; i++) {
+      await as(jake, 'POST', '/api/transactions', {
+        date: today,
+        description: 'Coffee cart',
+        amount_cents: 450,
+        category_id: cat(cats, 'Dining out').id,
+        payer_user_id: jakeId,
+        splits: [{ user_id: jakeId, share_cents: 450 }],
+      })
+    }
+    // A bill that posts tomorrow (or on the 1st when the month is about to roll over).
+    const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
+    const tomorrowDay = Number(tomorrow.slice(8, 10))
+    await as(jake, 'POST', '/api/recurring', {
+      description: 'Internet',
+      amount_cents: 8000,
+      category_id: cat(cats, 'Internet & phone').id,
+      payer_user_id: jakeId,
+      splits: [{ user_id: jakeId, share_cents: 4000 }, { user_id: sanyaId, share_cents: 4000 }],
+      cadence: 'monthly',
+      day_of_month: tomorrowDay <= 28 ? tomorrowDay : 1,
+    })
+    // A fresh envelope with $10 in it and a $50 purchase against it.
+    const tickets = await as(jake, 'POST', '/api/categories', { name: 'Concert tickets', scope: 'shared' })
+    await as(jake, 'PUT', `/api/budget/${month}/allocations`, { category_id: tickets.id, amount_cents: 1000 })
+    await as(sanya, 'POST', '/api/transactions', {
+      date: today,
+      description: 'Two tickets',
+      amount_cents: 5000,
+      category_id: tickets.id,
+      payer_user_id: sanyaId,
+      splits: [{ user_id: jakeId, share_cents: 2500 }, { user_id: sanyaId, share_cents: 2500 }],
+    })
+
+    const forJake = (await as(jake, 'GET', '/api/summary')).attention
+    const forSanya = (await as(sanya, 'GET', '/api/summary')).attention
+    expect(forJake.tasks.overdue).toBeGreaterThanOrEqual(1)
+    expect(forJake.tasks.mine_overdue).toBeGreaterThanOrEqual(1)
+    expect(forSanya.tasks.overdue).toBe(forJake.tasks.overdue)
+    expect(forSanya.tasks.mine_overdue).toBe(0)
+    expect(forJake.uncategorized_count).toBeGreaterThanOrEqual(1)
+    expect(forSanya.uncategorized_count).toBe(forJake.uncategorized_count)
+    expect(forJake.bills_due.some((b: { description: string }) => b.description === 'Internet')).toBe(true)
+    expect(forJake.duplicate_pairs).toBeGreaterThanOrEqual(1)
+    expect(forSanya.over_budget.find((o: { name: string }) => o.name === 'Concert tickets')).toMatchObject({ over_cents: 4000, scope: 'shared' })
+    // Last month's review leads the dashboard only during the first week of a month.
+    const dayOfMonth = Number(today.slice(8, 10))
+    if (dayOfMonth > 7) expect(forJake.review_ready).toBeNull()
+  })
+
+  it('a personal envelope in the red is only its owner’s business', async () => {
+    const cats = (await as(sanya, 'GET', '/api/categories')).categories
+    const fun = cat(cats, 'Fun money', sanyaId)
+    await as(sanya, 'PUT', `/api/budget/${month}/allocations`, { category_id: fun.id, amount_cents: 1000 })
+    await as(sanya, 'POST', '/api/transactions', {
+      date: today,
+      description: 'Pottery class',
+      amount_cents: 9000,
+      category_id: fun.id,
+      payer_user_id: sanyaId,
+      splits: [{ user_id: sanyaId, share_cents: 9000 }],
+    })
+    const forSanya = (await as(sanya, 'GET', '/api/summary')).attention
+    const forJake = (await as(jake, 'GET', '/api/summary')).attention
+    expect(forSanya.over_budget.some((o: { id: string }) => o.id === fun.id)).toBe(true)
+    expect(forJake.over_budget.some((o: { id: string }) => o.id === fun.id)).toBe(false)
+  })
+})
+
+describe('8 · every reporting surface works for both logins', () => {
   it('review, insights, trends, filters, duplicates, and export answer for each of you', async () => {
     for (const who of [jake, sanya]) {
       const review = await as(who, 'GET', `/api/review/${month}`)

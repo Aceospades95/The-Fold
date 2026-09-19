@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import type { ListItemRow, ListRow } from '@fold/shared'
-import { badRequest, id, notFound, now } from '../lib/util.js'
+import type { ListItemRow, ListRepeat, ListRow } from '@fold/shared'
+import { addDays, badRequest, id, notFound, now, today } from '../lib/util.js'
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -18,11 +18,34 @@ const itemBody = z.object({
   amount_cents: z.number().int().min(0).nullish(),
   assignee_user_id: z.string().nullish(),
   due_date: z.string().regex(DATE).nullish(),
+  repeat: z.enum(['daily', 'weekly', 'biweekly', 'monthly']).nullish(),
 })
 
 const itemPatch = itemBody.partial().extend({
   done: z.union([z.literal(0), z.literal(1)]).optional(),
 })
+
+function addMonths(date: string, months: number): string {
+  const [y, m, d] = date.split('-').map(Number)
+  const target = new Date(Date.UTC(y, m - 1 + months, 1))
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate()
+  target.setUTCDate(Math.min(d, lastDay))
+  return target.toISOString().slice(0, 10)
+}
+
+/**
+ * The next due date for a repeating item once it's ticked off. Counts forward
+ * from its own schedule (so a Monday chore stays on Mondays) but always lands
+ * after today — finishing a chore three weeks late shouldn't leave it overdue.
+ */
+export function nextRepeatDate(from: string | null, repeat: ListRepeat, notBefore = today()): string {
+  let date = from ?? notBefore
+  const step = (d: string): string =>
+    repeat === 'daily' ? addDays(d, 1) : repeat === 'weekly' ? addDays(d, 7) : repeat === 'biweekly' ? addDays(d, 14) : addMonths(d, 1)
+  do date = step(date)
+  while (date <= notBefore)
+  return date
+}
 
 function listForHousehold(app: FastifyInstance, listId: string, householdId: string): void {
   const row = app.db.prepare('SELECT id FROM lists WHERE id = ? AND household_id = ?').get(listId, householdId)
@@ -98,8 +121,8 @@ export async function listRoutes(app: FastifyInstance): Promise<void> {
     ).s
     app.db
       .prepare(
-        `INSERT INTO list_items (id, list_id, text, notes, url, amount_cents, assignee_user_id, due_date, sort, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO list_items (id, list_id, text, notes, url, amount_cents, assignee_user_id, due_date, repeat, sort, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         itemId,
@@ -110,6 +133,7 @@ export async function listRoutes(app: FastifyInstance): Promise<void> {
         body.amount_cents ?? null,
         body.assignee_user_id ?? null,
         body.due_date ?? null,
+        body.repeat ?? null,
         maxSort + 1,
         now(),
       )
@@ -120,26 +144,38 @@ export async function listRoutes(app: FastifyInstance): Promise<void> {
     const { id: itemId } = req.params as { id: string }
     const row = app.db
       .prepare(
-        `SELECT li.id, li.done FROM list_items li JOIN lists l ON l.id = li.list_id
+        `SELECT li.id, li.done, li.due_date, li.repeat FROM list_items li JOIN lists l ON l.id = li.list_id
          WHERE li.id = ? AND l.household_id = ?`,
       )
-      .get(itemId, req.user.household_id) as { id: string; done: 0 | 1 } | undefined
+      .get(itemId, req.user.household_id) as
+      | { id: string; done: 0 | 1; due_date: string | null; repeat: ListRepeat | null }
+      | undefined
     if (!row) notFound('Item')
     const body = itemPatch.parse(req.body)
     const fields: Record<string, string | number | null> = {}
-    for (const key of ['text', 'notes', 'url', 'amount_cents', 'assignee_user_id', 'due_date'] as const) {
+    for (const key of ['text', 'notes', 'url', 'amount_cents', 'assignee_user_id', 'due_date', 'repeat'] as const) {
       if (body[key] !== undefined) fields[key] = body[key] ?? null
     }
+    let next_due: string | null = null
     if (body.done !== undefined) {
-      fields.done = body.done
-      fields.completed_at = body.done === 1 ? now() : null
+      const repeat = body.repeat !== undefined ? body.repeat ?? null : row!.repeat
+      if (body.done === 1 && repeat) {
+        // A repeating chore never finishes — it comes back on its next date.
+        next_due = nextRepeatDate(body.due_date ?? row!.due_date, repeat)
+        fields.due_date = next_due
+        fields.done = 0
+        fields.completed_at = now()
+      } else {
+        fields.done = body.done
+        fields.completed_at = body.done === 1 ? now() : null
+      }
     }
     const keys = Object.keys(fields)
     if (keys.length > 0) {
       const assignments = keys.map((k) => `${k} = ?`).join(', ')
       app.db.prepare(`UPDATE list_items SET ${assignments} WHERE id = ?`).run(...keys.map((k) => fields[k]), itemId)
     }
-    return { ok: true }
+    return { ok: true, next_due }
   })
 
   app.delete('/list-items/:id', async (req) => {

@@ -43,7 +43,7 @@ export async function integrationRoutes(app: FastifyInstance): Promise<void> {
     const config = getHaConfig(app.db, req.user.household_id)
     if (!config.url) badRequest('Save a webhook URL first.')
     const result = await fireWebhook(config.url!, 'test', {
-      message: 'Hello from The Fold 🪺 — your webhook works.',
+      message: 'Hello from The Fold — your webhook works.',
     })
     if (!result.ok) {
       badRequest(

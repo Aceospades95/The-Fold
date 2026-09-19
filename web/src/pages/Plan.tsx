@@ -18,7 +18,7 @@ import {
 import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ListTree, Lock, LockOpen, Plus, RefreshCw, X } from 'lucide-react'
 import { api, useApi } from '../api'
 import { currentMonth, fmtMoney, fmtMonth, shiftMonth } from '../format'
-import { Button, Card, EmptyState, NumberInput, cls } from '../ui'
+import { Button, Card, EmptyState, LoadError, NumberInput, PageSkeleton, cls } from '../ui'
 
 /* ---------------------------------------------------------------- helpers -- */
 
@@ -665,6 +665,7 @@ export default function Plan() {
   const [plan, setPlan] = useState<PlanState | null>(null)
   const [bootstrapped, setBootstrapped] = useState(false)
   const [saveStatus, setSaveStatus] = useState('')
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [scenarios, setScenarios] = useState<{ name: string; saved_by: string; saved_at: string }[]>([])
   const [scenarioSel, setScenarioSel] = useState('')
   const [actualMonth, setActualMonth] = useState(currentMonth)
@@ -683,14 +684,20 @@ export default function Plan() {
   planRef.current = plan
 
   useEffect(() => {
-    void api.get<{ state: PlanState; saved_at: string | null; saved_by: string | null; bootstrapped?: boolean }>('/plan').then((r) => {
-      setPlan(r.state)
-      setBootstrapped(!!r.bootstrapped)
-      setSaveStatus(
-        r.saved_at ? `Saved ${new Date(r.saved_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} by ${r.saved_by}` : '',
-      )
-    })
-    void api.get<{ scenarios: { name: string; saved_by: string; saved_at: string }[] }>('/plan/scenarios').then((r) => setScenarios(r.scenarios))
+    api
+      .get<{ state: PlanState; saved_at: string | null; saved_by: string | null; bootstrapped?: boolean }>('/plan')
+      .then((r) => {
+        setPlan(r.state)
+        setBootstrapped(!!r.bootstrapped)
+        setSaveStatus(
+          r.saved_at ? `Saved ${new Date(r.saved_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} by ${r.saved_by}` : '',
+        )
+      })
+      .catch((err: Error) => setLoadError(err.message))
+    api
+      .get<{ scenarios: { name: string; saved_by: string; saved_at: string }[] }>('/plan/scenarios')
+      .then((r) => setScenarios(r.scenarios))
+      .catch(() => setScenarios([]))
     return () => {
       if (dirtyTimer.current) clearTimeout(dirtyTimer.current)
     }
@@ -785,7 +792,9 @@ export default function Plan() {
     return { rows, unplanned }
   }, [actuals, plan])
 
-  if (!plan || !math) return null
+  if (!plan || !math) {
+    return loadError ? <LoadError message={loadError} onRetry={() => window.location.reload()} /> : <PageSkeleton cards={4} />
+  }
   const [a, b] = plan.people
   const colorA = memberVar(a.color)
   const colorB = memberVar(b.color)
@@ -1469,7 +1478,7 @@ export default function Plan() {
                                 className="h-full rounded-full"
                                 style={{ width: `${pct}%`, backgroundColor: over ? '#ef4444' : 'var(--color-accent)' }}
                               />
-                              {isCurrentMonth && row.cat.amt > 0 && (
+                              {isCurrentMonth && row.planned > 0 && (
                                 <span
                                   className="absolute inset-y-0 w-0.5 bg-slate-400/70"
                                   style={{ left: `${Math.min(100, elapsedPct * 100)}%` }}
@@ -1484,10 +1493,10 @@ export default function Plan() {
                               : paidExactly
                                 ? '✓ paid'
                                 : over
-                                  ? `${fmt$(spent - row.cat.amt)} over`
+                                  ? `${fmt$(spent - row.planned)} over`
                                   : isCurrentMonth
                                     ? `≈ ${fmt$(runRate)}`
-                                    : fmt$(spent - row.cat.amt)}
+                                    : fmt$(spent - row.planned)}
                           </td>
                         </tr>
                       )

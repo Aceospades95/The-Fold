@@ -3,7 +3,7 @@ import type { BudgetCategoryRow, BudgetResponse, CategoryGroup, SpendBucket } fr
 import { BUCKET_LABELS } from '@fold/shared'
 import { api } from '../../api'
 import { useMe } from '../../App'
-import { fmtMoney } from '../../format'
+import { fmtMoney, fmtMonth } from '../../format'
 import { Button, ErrorNote, Field, Modal, MoneyInput, Select, TextInput } from '../../ui'
 
 export function MoveMoneyModal({
@@ -269,8 +269,8 @@ export function IncomeOverrideModal({
     <Modal title={`${member.name}'s income this month`} onClose={onClose}>
       <div className="space-y-4">
         <p className="text-sm text-slate-600">
-          Override the usual amount for {month} only — handy for a bonus, a third paycheck, or a slow month. Income
-          sources live in Settings.
+          Override the usual amount for {fmtMonth(month)} only — handy for a bonus, a third paycheck, or a slow month.
+          Income sources live in Settings.
         </p>
         <Field label="Income for this month">
           <MoneyInput cents={amount} onCents={setAmount} autoFocus />

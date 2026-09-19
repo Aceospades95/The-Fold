@@ -14,7 +14,7 @@ import { CADENCES, MEMBER_COLOR_LABELS, MEMBER_PALETTE, METHOD_LABELS, monthlyCe
 import { Check, Copy, Download, KeyRound, Link2, Moon, Monitor, Pencil, Plus, RefreshCw, ShieldCheck, Sun, Sunrise, Trash2, UserPlus } from 'lucide-react'
 import { api, useApi } from '../api'
 import { useMe } from '../App'
-import { fmtMoney } from '../format'
+import { fmtDate, fmtMoney } from '../format'
 import { ACCENTS, applyTheme, loadTheme, type ThemeMode, type ThemePref } from '../theme'
 import { Avatar, Button, Card, CardTitle, Chip, ErrorNote, Field, Modal, MoneyInput, NumberInput, Select, TextInput, cls } from '../ui'
 
@@ -624,9 +624,9 @@ function ServerCard() {
                         </span>
                       )}
                     </td>
-                    <td className="py-2 pr-3 text-xs tabular-nums text-slate-500">{row.created_at.slice(0, 10)}</td>
+                    <td className="py-2 pr-3 text-xs tabular-nums text-slate-500">{fmtDate(row.created_at.slice(0, 10))}</td>
                     <td className="py-2 pr-3 text-xs tabular-nums text-slate-500">
-                      {row.last_login ? row.last_login.slice(0, 10) : 'never'}
+                      {row.last_login ? fmtDate(row.last_login.slice(0, 10)) : 'never'}
                     </td>
                     <td className="py-2 text-right">
                       {row.id !== me.user.id && (
@@ -750,6 +750,20 @@ function PartnerCard() {
     setTimeout(() => setCopied(null), 2000)
   }
 
+  async function revoke(code: string): Promise<void> {
+    if (!confirm(`Revoke code ${code}? Anyone holding it can no longer join.`)) return
+    setError(null)
+    try {
+      await api.delete(`/invites/${code}`)
+      invites.reload()
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  const daysLeft = (expiresAt: string): number =>
+    Math.max(0, Math.ceil((Date.parse(expiresAt) - Date.now()) / 86_400_000))
+
   async function redeem(): Promise<void> {
     setError(null)
     try {
@@ -785,22 +799,28 @@ function PartnerCard() {
             Send a code — they create their own login with it (or redeem it from their existing solo account) and your
             budgets link into one household. Their solo history comes along as their personal envelopes.
           </p>
-          {(invites.data?.invites ?? []).map((invite) => (
-            <div key={invite.code} className="flex items-center gap-2">
-              <code className="rounded-lg bg-violet-50 px-3 py-1.5 text-base font-bold tracking-widest text-violet-700">
-                {invite.code}
-              </code>
-              <Button variant="secondary" onClick={() => void copy(invite.code)}>
-                {copied === invite.code ? <Check size={14} /> : <Copy size={14} />}
-              </Button>
-              <span className="text-xs text-slate-400">expires {invite.expires_at.slice(0, 10)}</span>
-            </div>
-          ))}
-          {(invites.data?.invites ?? []).length === 0 && (
-            <Button variant="secondary" onClick={() => void generate()}>
-              Generate invite code
-            </Button>
-          )}
+          {(invites.data?.invites ?? []).map((invite) => {
+            const left = daysLeft(invite.expires_at)
+            return (
+              <div key={invite.code} className="flex flex-wrap items-center gap-2">
+                <code className="rounded-lg bg-violet-50 px-3 py-1.5 text-base font-bold tracking-widest text-violet-700">
+                  {invite.code}
+                </code>
+                <Button variant="secondary" onClick={() => void copy(invite.code)} aria-label="Copy code">
+                  {copied === invite.code ? <Check size={14} /> : <Copy size={14} />}
+                </Button>
+                <Button variant="ghost" onClick={() => void revoke(invite.code)} className="!px-2 text-xs text-slate-500" aria-label="Revoke code">
+                  Revoke
+                </Button>
+                <span className={cls('text-xs', left <= 2 ? 'font-medium text-amber-600' : 'text-slate-400')}>
+                  {left === 0 ? 'expires today' : `expires in ${left} ${left === 1 ? 'day' : 'days'}`}
+                </span>
+              </div>
+            )
+          })}
+          <Button variant="secondary" onClick={() => void generate()}>
+            {(invites.data?.invites ?? []).length === 0 ? 'Generate invite code' : 'New code'}
+          </Button>
         </div>
 
         {solo && (
@@ -1070,7 +1090,7 @@ function ApiTokensCard() {
             <li key={token.id} className="flex items-center gap-2 py-2 text-sm">
               <span className="flex-1 font-medium">{token.name}</span>
               <span className="text-xs text-slate-400">
-                {token.last_used_at ? `last used ${token.last_used_at.slice(0, 10)}` : 'never used'}
+                {token.last_used_at ? `last used ${fmtDate(token.last_used_at.slice(0, 10))}` : 'never used'}
               </span>
               <Button variant="ghost" onClick={() => void revoke(token)} className="!px-2 !py-1 text-xs text-red-500">
                 Revoke
@@ -1121,7 +1141,7 @@ export default function Settings() {
   })
   const [incomeModal, setIncomeModal] = useState<{ open: boolean; source: IncomeSource | null }>({ open: false, source: null })
   const [copied, setCopied] = useState(false)
-  const [savedNote, setSavedNote] = useState(false)
+  const [savedNote, setSavedNote] = useState<'name' | 'split' | null>(null)
 
   const calendarUrl = `${window.location.origin}${me.household.calendar_path}`
   const customTotal = Object.values(customSplit).reduce((sum, v) => sum + v, 0)
@@ -1133,20 +1153,30 @@ export default function Settings() {
     return () => clearTimeout(t)
   }, [])
 
-  async function saveHousehold(): Promise<void> {
+  // The auto name ("Jacob and Sanya’s budget") follows profile renames; keep the box in step.
+  useEffect(() => setHouseholdName(me.household.name), [me.household.name])
+
+  async function saveHousehold(which: 'name' | 'split'): Promise<void> {
+    const typed = householdName.trim()
     await api.patch('/household', {
-      name: householdName,
+      // Only a changed name counts as "typed" — saving the split rule must not freeze the auto name.
+      ...(typed && typed !== me.household.name ? { name: typed } : {}),
       split_rule: rule,
       split_basis: basis,
       custom_split: rule === 'custom' ? customSplit : null,
     })
     await reloadMe()
-    setSavedNote(true)
-    setTimeout(() => setSavedNote(false), 2000)
+    setSavedNote(which)
+    setTimeout(() => setSavedNote(null), 2000)
+  }
+
+  async function resetHouseholdName(): Promise<void> {
+    await api.patch('/household', { reset_name: true })
+    await reloadMe()
   }
 
   async function deleteIncome(source: IncomeSource): Promise<void> {
-    if (!confirm(`Remove "${source.name}"?`)) return
+    if (!confirm(`Remove "${source.name}"? Income-based splits and "left to assign" recalculate without it.`)) return
     await api.delete(`/income/${source.id}`)
     income.reload()
     await reloadMe()
@@ -1181,12 +1211,20 @@ export default function Settings() {
         <CardTitle>Household</CardTitle>
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Name">
-            <TextInput value={householdName} onChange={(e) => setHouseholdName(e.target.value)} className="w-56" />
+            <TextInput value={householdName} onChange={(e) => setHouseholdName(e.target.value)} className="w-64" />
           </Field>
-          <Button variant="secondary" onClick={() => void saveHousehold()}>
-            {savedNote ? <Check size={14} /> : null} Save
+          <Button variant="secondary" onClick={() => void saveHousehold('name')}>
+            {savedNote === 'name' ? <Check size={14} /> : null} Save
           </Button>
+          {me.household.name_custom && (
+            <Button variant="ghost" onClick={() => void resetHouseholdName()} className="text-xs">
+              Use default
+            </Button>
+          )}
         </div>
+        {!me.household.name_custom && (
+          <p className="mt-1.5 text-xs text-slate-500">Follows the names on your accounts until you type one.</p>
+        )}
         <div className="mt-4 space-y-2">
           {me.household.members.map((m) => (
             <div key={m.id} className="flex items-center gap-3">
@@ -1248,13 +1286,15 @@ export default function Settings() {
                         </span>
                         <button
                           onClick={() => setIncomeModal({ open: true, source })}
-                          className="hidden rounded p-1 text-slate-400 hover:bg-slate-100 group-hover:block"
+                          aria-label={`Edit ${source.name}`}
+                          className="hidden rounded p-1 text-slate-400 hover:bg-slate-100 group-hover:block max-md:block"
                         >
                           <Pencil size={13} />
                         </button>
                         <button
                           onClick={() => void deleteIncome(source)}
-                          className="hidden rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 group-hover:block"
+                          aria-label={`Remove ${source.name}`}
+                          className="hidden rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 group-hover:block max-md:block"
                         >
                           <Trash2 size={13} />
                         </button>
@@ -1337,8 +1377,8 @@ export default function Settings() {
           </div>
         )}
         <div className="mt-3">
-          <Button variant="secondary" onClick={() => void saveHousehold()} disabled={rule === 'custom' && customTotal !== 100}>
-            {savedNote ? <Check size={14} /> : null} Save split rule
+          <Button variant="secondary" onClick={() => void saveHousehold('split')} disabled={rule === 'custom' && customTotal !== 100}>
+            {savedNote === 'split' ? <Check size={14} /> : null} Save split rule
           </Button>
         </div>
       </Card>

@@ -526,7 +526,7 @@ export default function ImportWizard({
                         className="h-4 w-4 rounded border-slate-300 text-violet-600"
                       />
                     </td>
-                    <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-slate-500">{row.date}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-slate-500">{fmtDate(row.date)}</td>
                     <td className="max-w-[200px] px-2 py-1.5" title={row.description}>
                       <span className="flex items-center gap-1.5">
                         {row.merchant && <MerchantLogo name={row.merchant.name} domain={row.merchant.domain} size={18} />}

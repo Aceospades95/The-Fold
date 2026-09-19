@@ -420,6 +420,7 @@ export default function TxModal({
 
   async function remove(): Promise<void> {
     if (!existing) return
+    if (!confirm(`Delete "${existing.description}" (${fmtMoney(Math.abs(existing.amount_cents))})? Its splits and category lines go with it.`)) return
     setBusy(true)
     try {
       await api.delete(`/transactions/${existing.id}`)

@@ -4,13 +4,15 @@ import { z } from 'zod'
 import type { BudgetMethod, InviteInfo, MeResponse, SplitBasis, SplitRule } from '@fold/shared'
 import { hashPassword } from '../auth.js'
 import { resolveMethodConfig } from '../lib/budget.js'
-import { createInvite, formatInviteCode, redeemInviteCode, refreshHouseholdName } from '../lib/merge.js'
+import { createInvite, formatInviteCode, normalizeInviteCode, redeemInviteCode, refreshHouseholdName } from '../lib/merge.js'
 import { getMembers } from '../lib/queries.js'
 import { badRequest, id, now } from '../lib/util.js'
 import { nextMemberColor, seedPersonalDefaults } from './auth.js'
 
 const patchBody = z.object({
   name: z.string().trim().min(1).max(80).optional(),
+  /** Drop a typed name and go back to following the members' first names. */
+  reset_name: z.literal(true).optional(),
   split_rule: z.enum(['equal', 'proportional', 'custom']).optional(),
   split_basis: z.enum(['net', 'gross']).optional(),
   custom_split: z.record(z.string(), z.number().min(0).max(100)).nullable().optional(),
@@ -35,6 +37,7 @@ const memberBody = z.object({
 interface HouseholdRow {
   id: string
   name: string
+  name_custom: number
   split_rule: SplitRule
   split_basis: SplitBasis
   custom_split: string | null
@@ -45,12 +48,12 @@ interface HouseholdRow {
 
 export async function householdRoutes(app: FastifyInstance): Promise<void> {
   app.get('/me', async (req): Promise<MeResponse> => {
-    // Households linked before auto-naming existed still read "Jake’s budget";
-    // this is idempotent and writes nothing once the name is right or custom.
+    // Auto names follow member joins and profile renames; this is idempotent
+    // and writes nothing once the name is right or someone typed their own.
     refreshHouseholdName(app.db, req.user.household_id)
     const hh = app.db
       .prepare(
-        'SELECT id, name, split_rule, split_basis, custom_split, budget_method, method_config, calendar_token FROM households WHERE id = ?',
+        'SELECT id, name, name_custom, split_rule, split_basis, custom_split, budget_method, method_config, calendar_token FROM households WHERE id = ?',
       )
       .get(req.user.household_id) as unknown as HouseholdRow
     return {
@@ -64,6 +67,7 @@ export async function householdRoutes(app: FastifyInstance): Promise<void> {
       household: {
         id: hh.id,
         name: hh.name,
+        name_custom: hh.name_custom === 1,
         split_rule: hh.split_rule,
         split_basis: hh.split_basis,
         custom_split: hh.custom_split ? JSON.parse(hh.custom_split) : null,
@@ -81,8 +85,13 @@ export async function householdRoutes(app: FastifyInstance): Promise<void> {
       const total = Object.values(body.custom_split).reduce((sum, v) => sum + v, 0)
       if (Math.round(total) !== 100) badRequest('Custom split percentages must add up to 100.')
     }
-    if (body.name !== undefined) {
-      app.db.prepare('UPDATE households SET name = ? WHERE id = ?').run(body.name, req.user.household_id)
+    if (body.reset_name) {
+      app.db.prepare('UPDATE households SET name_custom = 0 WHERE id = ?').run(req.user.household_id)
+      refreshHouseholdName(app.db, req.user.household_id)
+    } else if (body.name !== undefined) {
+      app.db
+        .prepare('UPDATE households SET name = ?, name_custom = 1 WHERE id = ?')
+        .run(body.name, req.user.household_id)
     }
     if (body.split_rule !== undefined) {
       app.db.prepare('UPDATE households SET split_rule = ? WHERE id = ?').run(body.split_rule, req.user.household_id)
@@ -129,6 +138,16 @@ export async function householdRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/invites', async (req): Promise<InviteInfo> => {
     return createInvite(app.db, req.user.household_id, req.user.id)
+  })
+
+  /** Revoke an unused code of this household (a leaked or stale one stops working at once). */
+  app.delete('/invites/:code', async (req) => {
+    const { code } = req.params as { code: string }
+    const result = app.db
+      .prepare('DELETE FROM invites WHERE code = ? AND household_id = ? AND used_by_user_id IS NULL')
+      .run(normalizeInviteCode(code), req.user.household_id)
+    if (result.changes === 0) badRequest('That code is not one of yours, or was already used.')
+    return { ok: true }
   })
 
   /** Link this (solo) account into a partner's household using their code. */

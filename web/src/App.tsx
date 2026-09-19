@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import type { MeResponse, UserPublic } from '@fold/shared'
-import { BarChart3, CalendarRange, LayoutDashboard, ListChecks, LogOut, MoreHorizontal, PiggyBank, ReceiptText, Settings as SettingsIcon, SlidersHorizontal, Sparkles, TrendingUp } from 'lucide-react'
-import { api, onConnectionChange } from './api'
+import { BarChart3, CalendarRange, ClipboardCheck, LayoutDashboard, ListChecks, LogOut, MoreHorizontal, PiggyBank, ReceiptText, Settings as SettingsIcon, SlidersHorizontal, Sparkles, TrendingUp } from 'lucide-react'
+import { ApiError, api, onConnectionChange } from './api'
+import { Toaster, toast } from './toast'
 import { Avatar, Logo, cls } from './ui'
 
 /** One slim banner while the server is unreachable; probes until it's back. */
@@ -18,10 +19,29 @@ function OfflineBanner() {
   }, [offline])
   if (!offline) return null
   return (
-    <div className="fixed inset-x-0 top-0 z-50 bg-amber-500 py-1.5 text-center text-xs font-semibold text-white">
+    <div role="status" className="sticky top-0 z-50 bg-amber-500 py-1.5 text-center text-xs font-semibold text-white">
       Can’t reach The Fold’s server — retrying…
     </div>
   )
+}
+
+/**
+ * Any API call nobody caught ends up here — a failed save that would otherwise
+ * vanish silently gets a toast. Callers that show their own inline error never
+ * reach this (they caught it); offline and signed-out already have banners.
+ */
+function useUnhandledApiErrors(): void {
+  useEffect(() => {
+    const onRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason
+      if (!(reason instanceof ApiError)) return
+      event.preventDefault()
+      if (reason.status === 0 || reason.status === 401) return
+      toast(reason.message, 'error')
+    }
+    window.addEventListener('unhandledrejection', onRejection)
+    return () => window.removeEventListener('unhandledrejection', onRejection)
+  }, [])
 }
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -59,6 +79,7 @@ const NAV = [
   { to: '/networth', label: 'Net worth', icon: TrendingUp },
   { to: '/insights', label: 'Insights', icon: Sparkles },
   { to: '/reports', label: 'Reports', icon: BarChart3 },
+  { to: '/review', label: 'Review', icon: ClipboardCheck },
   { to: '/trips', label: 'Trips', icon: CalendarRange },
   { to: '/lists', label: 'Lists', icon: ListChecks },
   { to: '/settings', label: 'Settings', icon: SettingsIcon },
@@ -75,6 +96,12 @@ function Shell({ children }: { children: ReactNode }) {
   const location = useLocation()
   const [moreOpen, setMoreOpen] = useState(false)
   useEffect(() => setMoreOpen(false), [location.pathname])
+  useEffect(() => {
+    if (!moreOpen) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMoreOpen(false)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [moreOpen])
   const onMorePage = MORE_TABS.some((n) => location.pathname.startsWith(n.to))
   return (
     <div className="min-h-screen md:flex">
@@ -120,12 +147,15 @@ function Shell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="flex min-h-screen flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 md:hidden">
-          <div className="flex items-center gap-2">
-            <Logo size={24} />
-            <span className="font-bold">The Fold</span>
+        <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2.5 md:hidden">
+          <div className="flex min-w-0 items-center gap-2">
+            <Logo size={26} />
+            <div className="min-w-0 leading-tight">
+              <p className="font-bold">The Fold</p>
+              <p className="truncate text-[11px] text-slate-500">{me.household.name}</p>
+            </div>
           </div>
-          <button onClick={() => void signOut()} className="p-1.5 text-slate-400">
+          <button onClick={() => void signOut()} aria-label="Sign out" title="Sign out" className="p-1.5 text-slate-400">
             <LogOut size={17} />
           </button>
         </header>
@@ -133,7 +163,9 @@ function Shell({ children }: { children: ReactNode }) {
         {moreOpen && (
           <div className="fixed inset-0 z-40 bg-slate-900/30 md:hidden" onClick={() => setMoreOpen(false)}>
             <div
-              className="absolute inset-x-0 bottom-[3.5rem] rounded-t-2xl border-t border-slate-200 bg-white p-4 pb-3 shadow-2xl"
+              role="dialog"
+              aria-label="More pages"
+              className="absolute inset-x-0 bottom-[calc(3.3rem+max(0.375rem,env(safe-area-inset-bottom)))] rounded-t-2xl border-t border-slate-200 bg-white p-4 pb-3 shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="grid grid-cols-2 gap-2">
@@ -195,6 +227,7 @@ export default function App() {
   const [me, setMe] = useState<MeResponse | null>(null)
   const [boot, setBoot] = useState<{ has_users: boolean; signup_open: boolean }>({ has_users: true, signup_open: false })
   const location = useLocation()
+  useUnhandledApiErrors()
 
   async function loadMe(): Promise<void> {
     const result = await api.get<MeResponse>('/me')
@@ -234,6 +267,7 @@ export default function App() {
     return (
       <>
         <OfflineBanner />
+        <Toaster />
         <Login onDone={() => void loadMe()} hasUsers={boot.has_users} signupOpen={boot.signup_open} />
       </>
     )
@@ -242,15 +276,20 @@ export default function App() {
     me,
     reloadMe: loadMe,
     signOut: async () => {
-      await api.post('/auth/logout')
-      setMe(null)
-      setPhase('login')
+      // Even if the server can't be told, this device forgets the session.
+      try {
+        await api.post('/auth/logout')
+      } finally {
+        setMe(null)
+        setPhase('login')
+      }
     },
   }
 
   return (
     <MeContext.Provider value={context}>
       <OfflineBanner />
+      <Toaster />
       <Shell>
         <Routes location={location}>
           <Route path="/" element={<Dashboard />} />

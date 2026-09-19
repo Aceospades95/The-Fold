@@ -283,7 +283,7 @@ export default function CategoryDrawer({
             {row.target_type === 'by_date' && row.target_suggestion_cents != null && (
               <p className="rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-800">
                 Put <strong>{fmtMoney(row.target_suggestion_cents)}</strong> in each month to hit{' '}
-                {fmtMoney(row.target_cents ?? 0)} by {row.target_date}.
+                {fmtMoney(row.target_cents ?? 0)} by {row.target_date ? fmtDate(row.target_date) : 'the target date'}.
               </p>
             )}
 

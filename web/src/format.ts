@@ -39,6 +39,38 @@ export function todayStr(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+function daysFromToday(date: string): number {
+  return Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${todayStr()}T00:00:00Z`)) / 86_400_000)
+}
+
+/** "Today", "Yesterday", "Tomorrow", otherwise the short date. */
+export function fmtDay(date: string): string {
+  const delta = daysFromToday(date)
+  if (delta === 0) return 'Today'
+  if (delta === -1) return 'Yesterday'
+  if (delta === 1) return 'Tomorrow'
+  return fmtDate(date)
+}
+
+export type DueTone = 'overdue' | 'today' | 'soon' | 'later'
+
+/** How a due date should read and how loudly: overdue is red, today is amber, this week is neutral-strong. */
+export function dueLabel(date: string): { text: string; tone: DueTone; days: number } {
+  const days = daysFromToday(date)
+  if (days < 0) return { text: days === -1 ? 'Yesterday' : `${-days} days overdue`, tone: 'overdue', days }
+  if (days === 0) return { text: 'Today', tone: 'today', days }
+  if (days === 1) return { text: 'Tomorrow', tone: 'soon', days }
+  if (days <= 6) return { text: fmtDateFull(date).split(',')[0], tone: 'soon', days }
+  return { text: fmtDate(date), tone: 'later', days }
+}
+
+export const DUE_TONE_CLASS: Record<DueTone, string> = {
+  overdue: 'text-red-600 font-medium',
+  today: 'text-amber-600 font-medium',
+  soon: 'text-slate-600',
+  later: 'text-slate-500',
+}
+
 export function currentMonth(): string {
   return todayStr().slice(0, 7)
 }

@@ -4,8 +4,8 @@ import type { BalancesResponse, Category, DuplicatePair, ImportRule, Merchant, N
 import { ArrowLeftRight, CheckCircle2, ChevronLeft, ChevronRight, Copy, Plus, Repeat, Search, Split as SplitIcon, Store, Tag, Upload, X } from 'lucide-react'
 import { api, useApi } from '../api'
 import { useMe } from '../App'
-import { currentMonth, fmtDate, fmtDateFull, fmtMoney, fmtMonth, shiftMonth, todayStr } from '../format'
-import { Avatar, Button, Card, Chip, EmptyState, ErrorNote, Field, Modal, MoneyInput, TextInput, cls } from '../ui'
+import { currentMonth, fmtDate, fmtDateFull, fmtDay, fmtMoney, fmtMonth, shiftMonth, todayStr } from '../format'
+import { Avatar, Button, Card, Chip, EmptyState, ErrorNote, Field, Modal, MoneyInput, Skeleton, TextInput, cls } from '../ui'
 import ImportWizard from '../components/ImportWizard'
 import RecurringModal from '../components/RecurringModal'
 import TxModal, { CategorySelect } from '../components/TxModal'
@@ -230,6 +230,29 @@ export default function Transactions() {
   const duplicatePairs = duplicatesQuery.data?.pairs ?? []
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
 
+  // Deep links from the dashboard: open a tool straight away, then drop the flag from the URL.
+  const openParam = searchParams.get('open')
+  const reviewParam = searchParams.get('review')
+  const duplicatesLoaded = duplicatesQuery.data != null
+  useEffect(() => {
+    if (openParam === 'recurring') {
+      setManagingRecurring(true)
+      setSearchParams((prev) => {
+        prev.delete('open')
+        return prev
+      }, { replace: true })
+    }
+  }, [openParam, setSearchParams])
+  useEffect(() => {
+    if (reviewParam === 'duplicates' && duplicatesLoaded) {
+      setReviewingDuplicates(true)
+      setSearchParams((prev) => {
+        prev.delete('review')
+        return prev
+      }, { replace: true })
+    }
+  }, [reviewParam, duplicatesLoaded, setSearchParams])
+
   const grouped = useMemo(() => {
     const groups: { date: string; txs: Tx[] }[] = []
     for (const tx of transactions.data?.transactions ?? []) {
@@ -249,6 +272,7 @@ export default function Transactions() {
   }
 
   async function setCleared(ids: string[], cleared: boolean): Promise<void> {
+    if (ids.length > 1 && !confirm(`Mark all ${ids.length} pending entries as cleared?`)) return
     await api.post('/transactions/set-cleared', { ids, cleared })
     transactions.reload()
     unclearedQuery.reload()
@@ -341,12 +365,14 @@ export default function Transactions() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search all spending…"
+              aria-label="Search spending"
               className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-sm placeholder:text-slate-400 focus:border-violet-500 focus:outline-none"
             />
           </div>
           <select
             value={filterCategory}
             onChange={(e) => setFilterCategory(e.target.value)}
+            aria-label="Filter by category"
             className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
           >
             <option value="">All categories</option>
@@ -359,6 +385,7 @@ export default function Transactions() {
           <select
             value={filterAccount}
             onChange={(e) => setFilterAccount(e.target.value)}
+            aria-label="Filter by account"
             className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
           >
             <option value="">All accounts</option>
@@ -371,6 +398,7 @@ export default function Transactions() {
           <select
             value={filterPayer}
             onChange={(e) => setFilterPayer(e.target.value)}
+            aria-label="Filter by payer"
             className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
           >
             <option value="">Paid by anyone</option>
@@ -423,22 +451,26 @@ export default function Transactions() {
       )}
 
       <Card className="flex items-center justify-between !py-3">
-        {suggestion && creditor && debtor ? (
+        {!balances.data ? (
+          <Skeleton className="h-5 w-56" />
+        ) : suggestion && creditor && debtor ? (
           <p className="text-sm">
             <Avatar name={debtor.name} color={debtor.color} size={22} />{' '}
-            <strong>{debtor.id === me.user.id ? 'You' : debtor.name}</strong> owe{debtor.id === me.user.id ? '' : 's'}{' '}
-            <strong>{creditor.id === me.user.id ? 'you' : creditor.name}</strong>{' '}
+            <strong>{debtor.id === me.user.id ? 'You' : debtor.name.split(' ')[0]}</strong> owe{debtor.id === me.user.id ? '' : 's'}{' '}
+            <strong>{creditor.id === me.user.id ? 'you' : creditor.name.split(' ')[0]}</strong>{' '}
             <strong className="tabular-nums">{fmtMoney(suggestion.amount_cents)}</strong>
           </p>
+        ) : members.length < 2 ? (
+          <p className="text-sm text-slate-600">Just you for now — splits start once your partner joins.</p>
         ) : (
           <p className="text-sm text-slate-600">All settled — nobody owes anybody.</p>
         )}
         <div className="flex items-center gap-1">
-          <button onClick={() => setMonth(shiftMonth(month, -1))} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">
+          <button onClick={() => setMonth(shiftMonth(month, -1))} aria-label="Previous month" className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">
             <ChevronLeft size={17} />
           </button>
           <span className="w-32 text-center text-sm font-semibold">{fmtMonth(month)}</span>
-          <button onClick={() => setMonth(shiftMonth(month, 1))} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">
+          <button onClick={() => setMonth(shiftMonth(month, 1))} aria-label="Next month" className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">
             <ChevronRight size={17} />
           </button>
         </div>
@@ -457,10 +489,20 @@ export default function Transactions() {
           Add an expense and choose how to split it.
         </EmptyState>
       ) : (
-        <div className="space-y-4">
+        <div className={cls('space-y-4 transition-opacity', transactions.loading && 'opacity-60')}>
+          {grouped.length === 0 && (
+            <div className="space-y-3">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-14 w-full rounded-2xl" />
+              <Skeleton className="h-14 w-full rounded-2xl" />
+            </div>
+          )}
           {grouped.map((group) => (
             <div key={group.date}>
-              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">{fmtDateFull(group.date)}</p>
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                {fmtDay(group.date) !== fmtDate(group.date) ? `${fmtDay(group.date)} · ` : ''}
+                {fmtDateFull(group.date)}
+              </p>
               <Card className="divide-y divide-slate-100 !p-0">
                 {group.txs.map((tx) => {
                   const payer = members.find((m) => m.id === tx.payer_user_id)

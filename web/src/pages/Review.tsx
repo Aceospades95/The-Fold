@@ -4,8 +4,8 @@ import type { ReviewResponse } from '@fold/shared'
 import { ArrowDownRight, ArrowUpRight, ChevronLeft, ChevronRight, PartyPopper, TrendingUp } from 'lucide-react'
 import { useApi } from '../api'
 import { useMe } from '../App'
-import { currentMonth, fmtMoney, fmtMonth, shiftMonth, todayStr } from '../format'
-import { Avatar, Card, CardTitle, Chip, EmptyState, cls } from '../ui'
+import { currentMonth, fmtDate, fmtMoney, fmtMonth, shiftMonth, todayStr } from '../format'
+import { Avatar, Card, CardTitle, Chip, EmptyState, LoadError, PageSkeleton, cls } from '../ui'
 
 /** Reviewing "last month" is the natural default during the first week of a new one. */
 function defaultMonth(): string {
@@ -68,7 +68,7 @@ function HighlightList({
 export default function Review() {
   const { me } = useMe()
   const [month, setMonth] = useState(defaultMonth)
-  const { data } = useApi<ReviewResponse>(`/review/${month}`)
+  const { data, error, loading, reload } = useApi<ReviewResponse>(`/review/${month}`)
   const members = me.household.members
 
   const shareTotal = useMemo(
@@ -76,14 +76,14 @@ export default function Review() {
     [data],
   )
 
-  if (!data) return null
+  if (!data) return error ? <LoadError message={error} onRetry={reload} /> : <PageSkeleton cards={4} />
 
   const anythingHappened = data.transactions_count > 0 || data.income_cents > 0
   const spentPct = data.income_cents > 0 ? Math.min(100, Math.round((data.spent_cents / data.income_cents) * 100)) : 0
   const topMax = Math.max(1, ...data.top_categories.map((c) => c.spent_cents))
 
   return (
-    <div className="space-y-5">
+    <div className={cls('space-y-5 transition-opacity', loading && 'opacity-60')}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Month in review</h1>
@@ -93,6 +93,7 @@ export default function Review() {
           <button
             onClick={() => setMonth(shiftMonth(month, -1))}
             disabled={!data.has_prev}
+            aria-label="Previous month"
             className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-30"
           >
             <ChevronLeft size={17} />
@@ -101,6 +102,7 @@ export default function Review() {
           <button
             onClick={() => setMonth(shiftMonth(month, 1))}
             disabled={!data.has_next}
+            aria-label="Next month"
             className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-30"
           >
             <ChevronRight size={17} />
@@ -259,7 +261,7 @@ export default function Review() {
                     <li key={tx.id} className="flex items-center gap-3 py-2 text-sm">
                       {payer && <Avatar name={payer.name} color={payer.color} size={24} />}
                       <span className="min-w-0 flex-1 truncate">{tx.merchant_name ?? tx.description}</span>
-                      <span className="text-xs text-slate-400">{tx.date.slice(8, 10)} {fmtMonth(data.month).split(' ')[0].slice(0, 3)}</span>
+                      <span className="text-xs text-slate-400">{fmtDate(tx.date)}</span>
                       <span className="font-semibold tabular-nums">{fmtMoney(tx.amount_cents)}</span>
                     </li>
                   )

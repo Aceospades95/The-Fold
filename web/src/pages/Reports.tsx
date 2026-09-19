@@ -5,7 +5,7 @@ import { CalendarCheck, TrendingDown, TrendingUp } from 'lucide-react'
 import { useApi } from '../api'
 import { useMe } from '../App'
 import { fmtMoney, fmtMonthShort } from '../format'
-import { Avatar, Card, CardTitle, cls } from '../ui'
+import { Avatar, Card, CardTitle, EmptyState, LoadError, PageSkeleton, cls } from '../ui'
 
 function CashFlowChart({ months }: { months: TrendsResponse['months'] }) {
   const max = Math.max(1, ...months.map((m) => Math.max(m.income_cents, m.spent_cents)))
@@ -48,8 +48,8 @@ function CashFlowChart({ months }: { months: TrendsResponse['months'] }) {
 export default function Reports() {
   const { me } = useMe()
   const [range, setRange] = useState<6 | 12>(6)
-  const { data } = useApi<TrendsResponse>(`/budget-trends?months=${range}`)
-  if (!data) return null
+  const { data, error, loading, reload } = useApi<TrendsResponse>(`/budget-trends?months=${range}`)
+  if (!data) return error ? <LoadError message={error} onRetry={reload} /> : <PageSkeleton cards={2} />
 
   const totals = data.months.reduce(
     (acc, month) => ({
@@ -68,8 +68,10 @@ export default function Reports() {
   }))
   const memberTotal = memberTotals.reduce((sum, m) => sum + m.total, 0)
 
+  const nothingYet = totals.income === 0 && totals.spent === 0
+
   return (
-    <div className="space-y-5">
+    <div className={cls('space-y-5 transition-opacity', loading && 'opacity-60')}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Reports</h1>
@@ -78,7 +80,7 @@ export default function Reports() {
         <div className="flex flex-wrap items-center gap-2">
           <Link
             to="/review"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-slate-300"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
           >
             <CalendarCheck size={15} /> Month in review
           </Link>
@@ -87,6 +89,7 @@ export default function Reports() {
               <button
                 key={value}
                 onClick={() => setRange(value)}
+                aria-pressed={range === value}
                 className={cls('rounded-lg px-3 py-1.5', range === value ? 'bg-white shadow-sm' : 'text-slate-500')}
               >
                 {value} months
@@ -96,6 +99,12 @@ export default function Reports() {
         </div>
       </div>
 
+      {nothingYet ? (
+        <EmptyState title="Nothing to report yet">
+          Once there’s income and spending on record, cash flow, spending by group, and who-spent-it fill in here.
+        </EmptyState>
+      ) : (
+      <>
       <Card>
         <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div>
@@ -214,6 +223,8 @@ export default function Reports() {
           </Card>
         </div>
       </div>
+      </>
+      )}
     </div>
   )
 }

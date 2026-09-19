@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { AccountRow, AccountType, NetWorthPoint, NetWorthResponse } from '@fold/shared'
 import { ACCOUNT_TYPE_LABELS, LIABILITY_TYPES } from '@fold/shared'
-import { Archive, Plus } from 'lucide-react'
+import { Archive, Plus, Users } from 'lucide-react'
 import { api, useApi } from '../api'
 import { useMe } from '../App'
-import { centsToInput, fmtDate, fmtMoney, parseMoney } from '../format'
-import { Avatar, Button, Card, CardTitle, Chip, EmptyState, ErrorNote, Field, Modal, MoneyInput, Select, TextInput, cls, inputCls } from '../ui'
+import { centsToInput, fmtDate, fmtMoney, fmtMonthShort, parseMoney } from '../format'
+import { Avatar, Button, Card, CardTitle, Chip, EmptyState, ErrorNote, Field, LoadError, Modal, MoneyInput, PageSkeleton, Select, TextInput, cls, inputCls } from '../ui'
 
 function NetWorthChart({ history }: { history: NetWorthPoint[] }) {
   if (history.length < 2) {
@@ -23,6 +23,7 @@ function NetWorthChart({ history }: { history: NetWorthPoint[] }) {
   const y = (value: number) => height - pad - ((value - min) * (height - pad * 2)) / range
   const points = history.map((h, i) => `${x(i)},${y(h.net_cents)}`).join(' ')
   const area = `${pad},${height - pad} ${points} ${width - pad},${height - pad}`
+  const axis = (month: string) => `${fmtMonthShort(month)} ${month.slice(0, 4)}`
   return (
     <div>
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label="Net worth over time">
@@ -33,8 +34,8 @@ function NetWorthChart({ history }: { history: NetWorthPoint[] }) {
         ))}
       </svg>
       <div className="mt-1 flex justify-between text-xs text-slate-400">
-        <span>{history[0].month}</span>
-        <span>{history[history.length - 1].month}</span>
+        <span>{axis(history[0].month)}</span>
+        <span>{axis(history[history.length - 1].month)}</span>
       </div>
     </div>
   )
@@ -61,6 +62,7 @@ function BalanceCell({ account, onSaved }: { account: AccountRow; onSaved: () =>
         onBlur={() => void save()}
         onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
         inputMode="decimal"
+        aria-label={`Balance of ${account.name}`}
         className={cls(inputCls, 'py-1.5 pl-6 text-right text-sm')}
       />
     </div>
@@ -154,7 +156,7 @@ function AccountTable({ accounts, onChanged }: { accounts: AccountRow[]; onChang
                 {ACCOUNT_TYPE_LABELS[account.type]}
                 {owner ? (
                   <span className="inline-flex items-center gap-1">
-                    · <Avatar name={owner.name} color={owner.color} size={14} /> {owner.name}
+                    · <Avatar name={owner.name} color={owner.color} size={14} /> {owner.name.split(' ')[0]}
                   </span>
                 ) : (
                   <Chip className="!px-1.5 !py-0 text-[10px]">joint</Chip>
@@ -165,7 +167,8 @@ function AccountTable({ accounts, onChanged }: { accounts: AccountRow[]; onChang
             <button
               onClick={() => void archive(account)}
               title="Archive account"
-              className="hidden rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-500 group-hover:block"
+              aria-label={`Archive ${account.name}`}
+              className="hidden rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-500 group-hover:block max-md:block"
             >
               <Archive size={13} />
             </button>
@@ -178,10 +181,69 @@ function AccountTable({ accounts, onChanged }: { accounts: AccountRow[]; onChang
   )
 }
 
+/** Assets, debts, and net for each person plus whatever is held jointly. */
+function ByPersonCard({ accounts }: { accounts: AccountRow[] }) {
+  const { me } = useMe()
+  const owners: { id: string | null; name: string; color: string | null }[] = [
+    ...me.household.members.map((m) => ({ id: m.id, name: m.name.split(' ')[0], color: m.color })),
+    { id: null, name: 'Joint', color: null },
+  ]
+  const rows = owners
+    .map((owner) => {
+      const theirs = accounts.filter((a) => (a.owner_user_id ?? null) === owner.id)
+      const assets = theirs.filter((a) => !LIABILITY_TYPES.includes(a.type)).reduce((sum, a) => sum + a.balance_cents, 0)
+      const debts = theirs.filter((a) => LIABILITY_TYPES.includes(a.type)).reduce((sum, a) => sum + a.balance_cents, 0)
+      return { ...owner, assets, debts, net: assets - debts, count: theirs.length }
+    })
+    .filter((row) => row.count > 0)
+  if (rows.length < 2) return null
+  return (
+    <Card>
+      <CardTitle>By person</CardTitle>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
+              <th className="pb-2 font-semibold">Who</th>
+              <th className="pb-2 text-right font-semibold">Assets</th>
+              <th className="pb-2 text-right font-semibold">Owed</th>
+              <th className="pb-2 text-right font-semibold">Net</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((row) => (
+              <tr key={row.id ?? 'joint'}>
+                <td className="py-2">
+                  <span className="inline-flex items-center gap-2 font-medium">
+                    {row.color ? (
+                      <Avatar name={row.name} color={row.color} size={22} />
+                    ) : (
+                      <span className="flex h-[22px] w-[22px] items-center justify-center rounded-full bg-slate-200 text-slate-500">
+                        <Users size={12} />
+                      </span>
+                    )}
+                    {row.name}
+                    <span className="text-xs font-normal text-slate-400">
+                      {row.count} {row.count === 1 ? 'account' : 'accounts'}
+                    </span>
+                  </span>
+                </td>
+                <td className="py-2 text-right tabular-nums text-emerald-600">{fmtMoney(row.assets)}</td>
+                <td className="py-2 text-right tabular-nums text-red-500">{row.debts > 0 ? fmtMoney(row.debts) : '—'}</td>
+                <td className="py-2 text-right font-semibold tabular-nums">{fmtMoney(row.net)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  )
+}
+
 export default function NetWorth() {
-  const { data, reload } = useApi<NetWorthResponse>('/networth')
+  const { data, error, reload } = useApi<NetWorthResponse>('/networth')
   const [adding, setAdding] = useState(false)
-  if (!data) return null
+  if (!data) return error ? <LoadError message={error} onRetry={reload} /> : <PageSkeleton cards={2} />
 
   const assets = data.accounts.filter((a) => !LIABILITY_TYPES.includes(a.type))
   const liabilities = data.accounts.filter((a) => LIABILITY_TYPES.includes(a.type))
@@ -229,19 +291,25 @@ export default function NetWorth() {
             </div>
           </Card>
 
-          <div className="grid gap-5 lg:grid-cols-2">
-            <Card>
-              <CardTitle>Assets</CardTitle>
-              <AccountTable accounts={assets} onChanged={reload} />
-            </Card>
-            <Card>
-              <CardTitle>Debts</CardTitle>
-              <AccountTable accounts={liabilities} onChanged={reload} />
-            </Card>
+          <ByPersonCard accounts={data.accounts} />
+
+          <div className={cls('grid gap-5', assets.length > 0 && liabilities.length > 0 && 'lg:grid-cols-2')}>
+            {assets.length > 0 && (
+              <Card>
+                <CardTitle>Assets</CardTitle>
+                <AccountTable accounts={assets} onChanged={reload} />
+              </Card>
+            )}
+            {liabilities.length > 0 && (
+              <Card>
+                <CardTitle>Debts</CardTitle>
+                <AccountTable accounts={liabilities} onChanged={reload} />
+              </Card>
+            )}
           </div>
           <p className="text-xs text-slate-400">
-            Tip: type a new balance and tab away — each save becomes a dated snapshot, which is what draws the trend
-            line. Bank sync (SimpleFIN) will do this automatically later.
+            Type a new balance and tab away — each save becomes a dated snapshot, which is what draws the trend line.
+            {liabilities.length === 0 && ' Add a credit card or loan as an account to track what you owe alongside.'}
           </p>
         </>
       )}

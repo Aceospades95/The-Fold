@@ -141,25 +141,33 @@ function mergeHouseholds(db: DatabaseSync, userId: string, targetHouseholdId: st
   }
 }
 
+/** "Jacob’s budget", "Jacob and Sanya’s budget", "Jacob, Sanya and Alex’s budget". */
+export function defaultHouseholdName(memberNames: string[]): string {
+  const firsts = memberNames.map((name) => name.trim().split(/\s+/)[0]).filter(Boolean)
+  if (firsts.length === 0) return 'Our budget'
+  const list =
+    firsts.length === 1
+      ? firsts[0]
+      : `${firsts.slice(0, -1).join(', ')} and ${firsts[firsts.length - 1]}`
+  return `${list}’s budget`
+}
+
 /**
- * A household still wearing its default solo name ("Jake’s budget") becomes
- * "Jake & Sanya" the moment a second person joins — a name either of them
- * can still change in Settings. A custom name is never touched.
+ * A household that never got a typed name follows its members: "Jacob’s
+ * budget" becomes "Jacob and Sanya’s budget" the moment she joins, and tracks
+ * profile renames. A name someone typed in Settings is never touched.
  */
 export function refreshHouseholdName(db: DatabaseSync, householdId: string): void {
-  const household = db.prepare('SELECT name FROM households WHERE id = ?').get(householdId) as
-    | { name: string }
+  const household = db.prepare('SELECT name, name_custom FROM households WHERE id = ?').get(householdId) as
+    | { name: string; name_custom: number }
     | undefined
-  if (!household) return
+  if (!household || household.name_custom) return
   const members = db
     .prepare('SELECT name FROM users WHERE household_id = ? ORDER BY created_at')
     .all(householdId) as { name: string }[]
-  if (members.length < 2) return
-  const firsts = members.map((m) => m.name.trim().split(/\s+/)[0]).filter(Boolean)
-  const isDefault = /’s budget$|'s budget$/.test(household.name) || /^[^&,]+ & [^&,]+$/.test(household.name) || /^[^&]+, .+ & .+$/.test(household.name)
-  if (!isDefault) return
-  const joined = firsts.length === 2 ? `${firsts[0]} & ${firsts[1]}` : `${firsts.slice(0, -1).join(', ')} & ${firsts[firsts.length - 1]}`
-  if (joined !== household.name) db.prepare('UPDATE households SET name = ? WHERE id = ?').run(joined, householdId)
+  if (members.length === 0) return
+  const derived = defaultHouseholdName(members.map((m) => m.name))
+  if (derived !== household.name) db.prepare('UPDATE households SET name = ? WHERE id = ?').run(derived, householdId)
 }
 
 /**

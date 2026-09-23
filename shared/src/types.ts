@@ -59,6 +59,8 @@ export interface Member extends UserPublic {
 export interface HouseholdInfo {
   id: string
   name: string
+  /** True once someone typed a name; false while it's derived from the members' first names. */
+  name_custom: boolean
   split_rule: SplitRule
   split_basis: SplitBasis
   custom_split: Record<string, number> | null
@@ -537,6 +539,16 @@ export interface TripDetailResponse {
   }
 }
 
+/** A chore that comes back: ticking it off moves the due date forward instead of finishing it. */
+export type ListRepeat = 'daily' | 'weekly' | 'biweekly' | 'monthly'
+
+export const LIST_REPEAT_LABELS: Record<ListRepeat, string> = {
+  daily: 'Every day',
+  weekly: 'Every week',
+  biweekly: 'Every 2 weeks',
+  monthly: 'Every month',
+}
+
 export interface ListItemRow {
   id: string
   list_id: string
@@ -546,9 +558,11 @@ export interface ListItemRow {
   amount_cents: number | null
   assignee_user_id: string | null
   due_date: string | null
+  repeat: ListRepeat | null
   done: 0 | 1
   sort: number
   created_at: string
+  /** For a repeating item: when it was last ticked off. */
   completed_at: string | null
 }
 
@@ -651,6 +665,20 @@ export interface ReviewResponse {
   net_worth_delta_cents: number | null
 }
 
+/** Everything on the dashboard that wants a look today. Empty arrays / zeros mean all clear. */
+export interface SummaryAttention {
+  /** Shared envelopes and the viewer's own personal ones that are in the red this month. */
+  over_budget: { id: string; name: string; over_cents: number; scope: 'shared' | 'personal' }[]
+  /** Expenses (any month) still without a category — they're invisible to the budget. */
+  uncategorized_count: number
+  /** Recurring bills that will post within the next seven days. */
+  bills_due: { id: string; description: string; amount_cents: number; next_date: string }[]
+  tasks: { overdue: number; due_today: number; mine_overdue: number }
+  duplicate_pairs: number
+  /** Last month, while the new one is still young enough that its review is the natural read. */
+  review_ready: string | null
+}
+
 export interface SummaryResponse {
   month: string
   shared_allocated_cents: number
@@ -659,8 +687,9 @@ export interface SummaryResponse {
   my_personal_spent_cents: number
   balances: BalancesResponse
   next_trip: (TripListItem & { days_until: number | null }) | null
-  my_tasks: { id: string; list_id: string; list_name: string; text: string; due_date: string | null }[]
+  my_tasks: { id: string; list_id: string; list_name: string; text: string; due_date: string | null; repeat: ListRepeat | null }[]
   recent_transactions: Tx[]
   net_worth: { net_cents: number; delta_month_cents: number | null; account_count: number } | null
   setup: { has_income: boolean; has_budget: boolean; has_transaction: boolean; partner_linked: boolean }
+  attention: SummaryAttention
 }

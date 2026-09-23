@@ -23,7 +23,16 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Budgeting methods: envelopes (zero-based), 50/30/20 with adjustable percentages, pay-yourself-first with a savings goal, and plain spending tracking — all over the same engine, with need/want/save tags per category.
 - [ ] Leave/unlink a household (reverse of merging) — needs a data-custody design first.
 - [x] Change password in-app (revokes other sessions), profile edits, session list + sign-out-everywhere.
-- [x] Password recovery without SMTP: the admin issues a one-time password from the Server card.
+- [x] Password recovery without SMTP: the admin issues a one-time password from the Server card — for any account on the instance, across households.
+- [x] Admin accounts view: every account with email, household + member count, a "not linked" flag on stranded solo accounts, join/last-sign-in dates, per-row password reset, and the server version.
+- [x] Two-person acceptance suite (server/test/two-person.test.ts): the whole Jake + Sanya lifecycle — link, colors, incomes, split rules, shared envelopes both see, shared expenses + balances + settle-up, personal budgets isolated per person, plan for two, default apply, lists assignment, trips + calendar feed, net worth, reports/review/insights/export, admin reset.
+- [x] Household auto-names itself "Jacob and Sanya’s budget" when the second person joins and follows profile renames; a typed name is flagged and never touched (with a one-click return to the default); first names on the balance line and partner budget card.
+- [x] New expenses no longer silently default to the first shared category — the pick is deliberate, and an unpicked one lands in the classify queue.
+- [x] Signup guard: creating an account with no invite code (while others exist) asks for confirmation first, so a partner can't accidentally land in a separate budget; linked households can keep generating invite codes (up to 4 members).
+- [x] Invite codes show days left, can be revoked, and a new one can be issued while another is live.
+- [x] Repeating chores: a list item can repeat daily / weekly / every 2 weeks / monthly — ticking it off moves the due date forward (keeping the weekday, never landing in the past) and remembers when it was last done.
+- [x] Due dates read as "Today", "Tomorrow", "3 days overdue" in red/amber on lists and the dashboard; recent spending says "Today" / "Yesterday".
+- [x] Polish pass: skeleton loading + retry-on-error for every data page (no more blank screens), no first-paint flicker on Lists/Spending, confirms before deleting an expense, list item, trip expense, finished items, or bulk-clearing, Review in the nav, household name in the mobile header, touch-reachable row actions, accessible modals (dialog role, focus trap, Escape only closes the top one, background scroll lock, no accidental backdrop dismiss), labeled icon buttons and filters, empty-state hints (personal envelopes, reports, net worth), a Plan "vs plan" column that compared against the wrong number for %-mode categories, real dates instead of raw ISO strings.
 - [ ] Self-serve password reset via email (depends on the SMTP driver in Phase 2).
 
 ## [Shipped] Phase 0 — Foundation (this branch)
@@ -68,7 +77,7 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [x] Reconciliation: cleared/pending flags per transaction, account-scoped tick-off view, imports arrive cleared.
 - [x] Login rate limiting (10 misses / 15 min per account, bounded memory).
 - [x] Offline resilience (reconnect banner + auto-refetch), session-expiry redirect, sliding session renewal, `Secure` cookies behind HTTPS, immutable asset caching, Docker healthcheck.
-- [ ] Settings encryption for stored credentials; cookie `Secure` when behind HTTPS.
+- [ ] Settings encryption for stored credentials (SimpleFIN token, HA webhook URL).
 
 ## Phase 1b — Budget depth [shipped]
 
@@ -90,14 +99,15 @@ Phased so every stage ships something you two actually use, and the spine (house
 - [ ] Google OAuth per member; app-created shared "The Fold" calendar; push trips/date nights as real events.
 - [ ] Google Tasks mirror for opted-in lists (assignment → their task list), two-way completion.
 - [ ] Cron scheduler in-server; weekly email digest + nudge emails via SMTP (dedicated Gmail app account).
-- [ ] In-app notifications strip (things due, over-budget warnings).
+- [x] In-app "Needs a look" card on the dashboard: blown envelopes (shared + your own), uncategorized spending, bills posting this week, overdue and due-today tasks, duplicate pairs, and last month's review during the first week — each a link to the fix.
+- [x] Error toasts for any save that fails, everywhere (a failed budget entry no longer silently snaps back).
 
 ## Phase 3 — Investments & net worth
 
 - [x] Manual accounts (checking, savings, brokerage, retirement, property, debts) with balance snapshots.
 - [x] Net-worth timeline for the household with joint and per-person accounts.
 - [ ] SimpleFIN balance auto-snapshots where available; optional ticker prices for holdings.
-- [ ] Per-person net worth breakdown view.
+- [x] Per-person net worth breakdown (assets, owed, net for each of you plus joint).
 
 ## Phase 4 — The conductor (home & fun)
 

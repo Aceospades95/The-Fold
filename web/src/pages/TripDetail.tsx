@@ -5,7 +5,7 @@ import { ArrowDown, ArrowLeft, ArrowUp, BedDouble, CheckCircle2, MapPin, Pencil,
 import { api, useApi } from '../api'
 import { useMe } from '../App'
 import { centsToInput, fmtMoney, fmtRange, parseMoney, todayStr } from '../format'
-import { Avatar, Button, Card, CardTitle, Chip, ErrorNote, Field, Modal, MoneyInput, ProgressBar, Select, TextInput, cls, inputCls } from '../ui'
+import { Avatar, Button, Card, CardTitle, Chip, ErrorNote, Field, Modal, MoneyInput, PageSkeleton, ProgressBar, Select, TextInput, cls, inputCls } from '../ui'
 import { CategorySelect, PayerPicker } from '../components/TxModal'
 import { SplitEditor, computeSplits, type SplitMode } from '../components/SplitEditor'
 import { STATUS_LABELS, TripModal } from './Trips'
@@ -130,6 +130,7 @@ function ExpenseModal({
 
   async function remove(): Promise<void> {
     if (!existing) return
+    if (!confirm(`Delete "${existing.name}" from this trip?`)) return
     try {
       await api.delete(`/trip-expenses/${existing.id}`)
       onSaved()
@@ -319,7 +320,7 @@ export default function TripDetail() {
       </div>
     )
   }
-  if (!data) return null
+  if (!data) return <PageSkeleton cards={2} />
 
   const { trip, totals } = data
   const remaining = totals.budget_cents - totals.spent_cents
@@ -445,11 +446,11 @@ export default function TripDetail() {
                   <div className="min-w-0 flex-1 pb-1">
                     <div className="flex items-center justify-between gap-2">
                       <p className="font-medium">{stop.name}</p>
-                      <span className="hidden shrink-0 gap-0.5 group-hover:flex">
-                        <button onClick={() => void moveStop(index, -1)} className="rounded p-1 text-slate-400 hover:bg-slate-200"><ArrowUp size={13} /></button>
-                        <button onClick={() => void moveStop(index, 1)} className="rounded p-1 text-slate-400 hover:bg-slate-200"><ArrowDown size={13} /></button>
-                        <button onClick={() => setStopModal({ open: true, stop })} className="rounded p-1 text-slate-400 hover:bg-slate-200"><Pencil size={13} /></button>
-                        <button onClick={() => void deleteStop(stop)} className="rounded p-1 text-slate-400 hover:bg-red-100 hover:text-red-600"><Trash2 size={13} /></button>
+                      <span className="hidden shrink-0 gap-0.5 group-hover:flex max-md:flex">
+                        <button onClick={() => void moveStop(index, -1)} aria-label="Move stop up" className="rounded p-1 text-slate-400 hover:bg-slate-200"><ArrowUp size={13} /></button>
+                        <button onClick={() => void moveStop(index, 1)} aria-label="Move stop down" className="rounded p-1 text-slate-400 hover:bg-slate-200"><ArrowDown size={13} /></button>
+                        <button onClick={() => setStopModal({ open: true, stop })} aria-label="Edit stop" className="rounded p-1 text-slate-400 hover:bg-slate-200"><Pencil size={13} /></button>
+                        <button onClick={() => void deleteStop(stop)} aria-label="Remove stop" className="rounded p-1 text-slate-400 hover:bg-red-100 hover:text-red-600"><Trash2 size={13} /></button>
                       </span>
                     </div>
                     <p className="text-xs text-slate-500">
@@ -481,7 +482,8 @@ export default function TripDetail() {
                       {cat.name}
                       <button
                         onClick={() => void deleteCategory(cat.id, cat.name)}
-                        className="hidden rounded p-0.5 text-slate-300 hover:text-red-500 group-hover:inline"
+                        aria-label={`Remove ${cat.name} bucket`}
+                        className="hidden rounded p-0.5 text-slate-300 hover:text-red-500 group-hover:inline max-md:inline"
                       >
                         <Trash2 size={12} />
                       </button>

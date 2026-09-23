@@ -5,7 +5,7 @@ import { ArrowRightLeft, ChevronLeft, ChevronRight, Pencil, Plus, Sparkles, Tag,
 import { api, useApi } from '../api'
 import { useMe } from '../App'
 import { currentMonth, fmtMoney, fmtMonth, shiftMonth } from '../format'
-import { Avatar, Button, Card, CardTitle, EmptyState, ProgressBar, cls } from '../ui'
+import { Avatar, Button, Card, CardTitle, EmptyState, LoadError, PageSkeleton, ProgressBar, cls } from '../ui'
 import { CategoryRow, GroupSection, TableHeader } from '../components/budget/rows'
 import CategoryDrawer from '../components/budget/CategoryDrawer'
 import IncomeSplitCard from '../components/budget/IncomeSplitCard'
@@ -127,7 +127,7 @@ function MemberCard({
 export default function Budget() {
   const { me } = useMe()
   const [month, setMonth] = useState(currentMonth())
-  const { data, reload } = useApi<BudgetResponse>(`/budget/${month}`)
+  const { data, error, loading, reload } = useApi<BudgetResponse>(`/budget/${month}`)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [drawerId, setDrawerId] = useState<string | null>(null)
   const [moveTarget, setMoveTarget] = useState<BudgetCategoryRow | null | undefined>(undefined)
@@ -147,7 +147,7 @@ export default function Budget() {
     }
   }, [data])
 
-  if (!data) return null
+  if (!data) return error ? <LoadError message={error} onRetry={reload} /> : <PageSkeleton cards={4} />
 
   async function allocate(categoryId: string, cents: number): Promise<void> {
     await api.put(`/budget/${month}/allocations`, { category_id: categoryId, amount_cents: cents })
@@ -204,7 +204,7 @@ export default function Budget() {
   const overspent = data.categories.filter((c) => c.available_cents < 0)
 
   return (
-    <div className="space-y-5">
+    <div className={cls('space-y-5 transition-opacity', loading && 'opacity-60')}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Budget</h1>
@@ -223,11 +223,11 @@ export default function Budget() {
             </span>
           )}
           <div className="flex items-center gap-1">
-            <button onClick={() => setMonth(shiftMonth(month, -1))} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">
+            <button onClick={() => setMonth(shiftMonth(month, -1))} aria-label="Previous month" className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">
               <ChevronLeft size={17} />
             </button>
             <span className="w-36 text-center text-sm font-semibold">{fmtMonth(month)}</span>
-            <button onClick={() => setMonth(shiftMonth(month, 1))} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">
+            <button onClick={() => setMonth(shiftMonth(month, 1))} aria-label="Next month" className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">
               <ChevronRight size={17} />
             </button>
           </div>
@@ -447,7 +447,7 @@ export default function Budget() {
               <div className="flex items-center gap-2.5">
                 <Avatar name={member.name} color={member.color} size={26} />
                 <div>
-                  <h2 className="font-semibold">{isMe ? 'My personal budget' : `${member.name}’s personal budget`}</h2>
+                  <h2 className="font-semibold">{isMe ? 'My personal budget' : `${member.name.split(' ')[0]}’s personal budget`}</h2>
                   <p className="text-xs text-slate-500">
                     {fmtMoney(member.personal_spent_cents)} spent of {fmtMoney(member.personal_allocated_cents)} ·{' '}
                     {fmtMoney(member.personal_available_cents)} available
@@ -465,7 +465,12 @@ export default function Budget() {
             <TableHeader />
             <div className="pt-1">
               {rows.length === 0 ? (
-                <p className="py-3 text-sm text-slate-400">No personal envelopes yet.</p>
+                <button
+                  onClick={() => setNewCategory({ scope: 'personal', owner: member.id })}
+                  className="py-3 text-sm text-slate-400 hover:text-violet-600"
+                >
+                  + add {isMe ? 'your' : 'a'} first personal envelope — fun money, hobbies, subscriptions
+                </button>
               ) : (
                 rows.map((row, i) => (
                   <CategoryRow

@@ -1,5 +1,5 @@
-import { Inbox, X } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { AlertTriangle, Inbox, RefreshCw, X } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { fmtMoney, parseMoney } from './format'
 
 export function cls(...parts: (string | false | null | undefined)[]): string {
@@ -13,6 +13,7 @@ export function Button({
   variant = 'primary',
   disabled,
   className,
+  ...rest
 }: {
   children: ReactNode
   onClick?: () => void
@@ -20,7 +21,7 @@ export function Button({
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger'
   disabled?: boolean
   className?: string
-}) {
+} & Pick<React.ButtonHTMLAttributes<HTMLButtonElement>, 'title' | 'aria-label' | 'aria-pressed' | 'aria-expanded'>) {
   const styles = {
     primary:
       'bg-violet-600 bg-gradient-to-b from-violet-500 to-violet-600 text-on-accent hover:from-violet-600 hover:to-violet-700 shadow-sm',
@@ -30,6 +31,7 @@ export function Button({
   }
   return (
     <button
+      {...rest}
       type={type}
       onClick={onClick}
       disabled={disabled}
@@ -59,6 +61,11 @@ export function CardTitle({ children, action }: { children: ReactNode; action?: 
   )
 }
 
+// Open dialogs, innermost last — only the top one answers Escape, and the page
+// behind stops scrolling while any are open.
+const openModals: symbol[] = []
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
 export function Modal({
   title,
   onClose,
@@ -70,22 +77,76 @@ export function Modal({
   children: ReactNode
   wide?: boolean
 }) {
+  const panel = useRef<HTMLDivElement>(null)
+  const token = useRef(Symbol('modal'))
+  const pressedBackdrop = useRef(false)
+
   useEffect(() => {
+    const me = token.current
+    openModals.push(me)
+    const opener = document.activeElement as HTMLElement | null
+    document.body.style.overflow = 'hidden'
+    // Land focus inside: the field a form marked autoFocus, else the first
+    // input, else the first control that isn't the close button.
+    const node = panel.current
+    if (node && !node.contains(document.activeElement)) {
+      const field = node.querySelector<HTMLElement>('input:not([disabled]), select:not([disabled]), textarea:not([disabled])')
+      const control = [...node.querySelectorAll<HTMLElement>(FOCUSABLE)].find((el) => !el.hasAttribute('data-modal-close'))
+      ;(field ?? control ?? node).focus()
+    }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (openModals[openModals.length - 1] !== me) return
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (e.key === 'Tab' && panel.current) {
+        const focusable = [...panel.current.querySelectorAll<HTMLElement>(FOCUSABLE)]
+        if (focusable.length === 0) return
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault()
+          last.focus()
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      openModals.splice(openModals.indexOf(me), 1)
+      if (openModals.length === 0) document.body.style.overflow = ''
+      opener?.focus?.()
+    }
   }, [onClose])
+
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-[8vh]" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-[8vh]"
+      // Close only on a click that both started and ended on the backdrop, so a
+      // drag-select that escapes the panel doesn't throw the form away.
+      onPointerDown={(e) => {
+        pressedBackdrop.current = e.target === e.currentTarget
+      }}
+      onClick={(e) => {
+        if (pressedBackdrop.current && e.target === e.currentTarget) onClose()
+        pressedBackdrop.current = false
+      }}
+    >
       <div
-        className={cls('w-full rounded-2xl bg-white p-6 shadow-xl', wide ? 'max-w-2xl' : 'max-w-md')}
-        onClick={(e) => e.stopPropagation()}
+        ref={panel}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        className={cls('w-full rounded-2xl bg-white p-6 shadow-xl outline-none', wide ? 'max-w-2xl' : 'max-w-md')}
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{title}</h2>
-          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+          <button onClick={onClose} aria-label="Close" data-modal-close className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
             <X size={18} />
           </button>
         </div>
@@ -292,4 +353,49 @@ export function Money({ cents, className }: { cents: number; className?: string 
 export function ErrorNote({ message }: { message: string | null }) {
   if (!message) return null
   return <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{message}</p>
+}
+
+/** Grey placeholder block that pulses while a page's data is on its way. */
+export function Skeleton({ className }: { className?: string }) {
+  return <div aria-hidden="true" className={cls('animate-pulse rounded-lg bg-slate-100', className)} />
+}
+
+/**
+ * The first paint of a data-driven page: a heading-sized bar and a few card
+ * outlines so the layout holds its shape instead of popping in from blank.
+ */
+export function PageSkeleton({ cards = 4 }: { cards?: number }) {
+  return (
+    <div className="space-y-5" aria-busy="true" aria-label="Loading">
+      <div className="space-y-2">
+        <Skeleton className="h-7 w-48" />
+        <Skeleton className="h-4 w-72" />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {Array.from({ length: cards }, (_, i) => (
+          <div key={i} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <Skeleton className="mb-3 h-3.5 w-28" />
+            <Skeleton className="mb-3 h-8 w-40" />
+            <Skeleton className="h-2 w-full" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** A page's data failed to load: say so, and offer to try again. */
+export function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-2xl border border-red-200 bg-red-50/60 px-6 py-10 text-center">
+      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 text-red-600">
+        <AlertTriangle size={18} />
+      </span>
+      <p className="font-medium text-slate-700">Couldn’t load this page</p>
+      <p className="text-sm text-slate-500">{message}</p>
+      <Button variant="secondary" onClick={onRetry}>
+        <RefreshCw size={14} /> Try again
+      </Button>
+    </div>
+  )
 }

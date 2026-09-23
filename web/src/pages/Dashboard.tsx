@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import type { Category, Merchant, SummaryResponse } from '@fold/shared'
-import { ArrowRight, Check, Circle, MapPin, Plus, X } from 'lucide-react'
+import type { Category, Merchant, SummaryAttention, SummaryResponse } from '@fold/shared'
+import { AlertTriangle, ArrowRight, CalendarClock, Check, ChevronRight, Circle, ClipboardCheck, Copy, MapPin, Plus, Repeat, Tag, UserPlus, X } from 'lucide-react'
 import { api, useApi } from '../api'
 import { useMe } from '../App'
-import { fmtDate, fmtMoney, fmtMonth, fmtRange } from '../format'
-import { Avatar, Button, Card, CardTitle, Chip, EmptyState, ProgressBar, cls } from '../ui'
+import { DUE_TONE_CLASS, dueLabel, fmtDay, fmtMoney, fmtMonth, fmtRange } from '../format'
+import { toast } from '../toast'
+import { Avatar, Button, Card, CardTitle, Chip, EmptyState, LoadError, PageSkeleton, ProgressBar, cls } from '../ui'
 import TxModal from '../components/TxModal'
 
 function greeting(): string {
@@ -57,7 +58,7 @@ function SetupChecklist({
     <Card className="border-violet-200">
       <div className="flex items-start justify-between gap-3">
         <CardTitle>Get set up · {doneCount} of {steps.length}</CardTitle>
-        <button onClick={onDismiss} title="Hide this checklist" className="rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-500">
+        <button onClick={onDismiss} title="Hide this checklist" aria-label="Hide this checklist" className="rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-500">
           <X size={15} />
         </button>
       </div>
@@ -101,14 +102,171 @@ function SetupChecklist({
   )
 }
 
+interface AttentionRow {
+  key: string
+  icon: ReactNode
+  text: string
+  detail?: string
+  to: string
+  tone: 'warn' | 'info'
+}
+
+/** Everything that wants a look today, gathered in one place; hidden when there's nothing. */
+function AttentionCard({ attention }: { attention: SummaryAttention }) {
+  const rows: AttentionRow[] = []
+  const plural = (n: number, one: string, many: string) => (n === 1 ? one : many)
+
+  const over = attention.over_budget
+  if (over.length > 0) {
+    if (over.length <= 2) {
+      for (const envelope of over) {
+        rows.push({
+          key: `over-${envelope.id}`,
+          icon: <AlertTriangle size={15} />,
+          text: `${envelope.name} is ${fmtMoney(envelope.over_cents)} over`,
+          detail: envelope.scope === 'personal' ? 'Your personal envelope' : 'Shared envelope',
+          to: '/budget',
+          tone: 'warn',
+        })
+      }
+    } else {
+      rows.push({
+        key: 'over',
+        icon: <AlertTriangle size={15} />,
+        text: `${over.length} envelopes are over budget`,
+        detail: `${fmtMoney(over.reduce((sum, o) => sum + o.over_cents, 0))} over in total`,
+        to: '/budget',
+        tone: 'warn',
+      })
+    }
+  }
+
+  if (attention.uncategorized_count > 0) {
+    const n = attention.uncategorized_count
+    rows.push({
+      key: 'uncategorized',
+      icon: <Tag size={15} />,
+      text: `${n} ${plural(n, 'transaction needs', 'transactions need')} a category`,
+      detail: 'Not counted in any envelope until filed',
+      to: '/transactions?needs=category',
+      tone: 'warn',
+    })
+  }
+
+  if (attention.tasks.overdue > 0) {
+    const n = attention.tasks.overdue
+    rows.push({
+      key: 'overdue',
+      icon: <CalendarClock size={15} />,
+      text: `${n} ${plural(n, 'task is', 'tasks are')} overdue`,
+      detail: attention.tasks.mine_overdue > 0 ? `${attention.tasks.mine_overdue} of them ${plural(attention.tasks.mine_overdue, 'is', 'are')} yours` : undefined,
+      to: '/lists',
+      tone: 'warn',
+    })
+  }
+  if (attention.tasks.due_today > 0) {
+    const n = attention.tasks.due_today
+    rows.push({
+      key: 'today',
+      icon: <CalendarClock size={15} />,
+      text: `${n} ${plural(n, 'task is', 'tasks are')} due today`,
+      to: '/lists',
+      tone: 'info',
+    })
+  }
+
+  const bills = attention.bills_due
+  if (bills.length > 0) {
+    if (bills.length <= 3) {
+      for (const bill of bills) {
+        const due = dueLabel(bill.next_date)
+        rows.push({
+          key: `bill-${bill.id}`,
+          icon: <Repeat size={15} />,
+          text: `${bill.description} · ${fmtMoney(bill.amount_cents)}`,
+          detail: due.days <= 0 ? 'Posts today' : `Posts ${due.text.toLowerCase() === 'tomorrow' ? 'tomorrow' : due.text}`,
+          to: '/transactions?open=recurring',
+          tone: 'info',
+        })
+      }
+    } else {
+      rows.push({
+        key: 'bills',
+        icon: <Repeat size={15} />,
+        text: `${bills.length} bills post this week`,
+        detail: `${fmtMoney(bills.reduce((sum, b) => sum + b.amount_cents, 0))} in total`,
+        to: '/transactions?open=recurring',
+        tone: 'info',
+      })
+    }
+  }
+
+  if (attention.duplicate_pairs > 0) {
+    const n = attention.duplicate_pairs
+    rows.push({
+      key: 'duplicates',
+      icon: <Copy size={15} />,
+      text: `${n} possible duplicate ${plural(n, 'pair', 'pairs')}`,
+      detail: 'Same amount within a few days',
+      to: '/transactions?review=duplicates',
+      tone: 'info',
+    })
+  }
+
+  if (attention.review_ready) {
+    rows.push({
+      key: 'review',
+      icon: <ClipboardCheck size={15} />,
+      text: `${fmtMonth(attention.review_ready).split(' ')[0]} in review is ready`,
+      detail: 'How last month actually went',
+      to: '/review',
+      tone: 'info',
+    })
+  }
+
+  if (rows.length === 0) return null
+  const warnings = rows.filter((r) => r.tone === 'warn').length
+  return (
+    <Card className={cls(warnings > 0 && 'border-amber-200')}>
+      <CardTitle>Needs a look</CardTitle>
+      <ul className="-mx-2 divide-y divide-slate-100">
+        {rows.map((row) => (
+          <li key={row.key}>
+            <Link to={row.to} className="group flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-slate-50">
+              <span
+                className={cls(
+                  'flex h-7 w-7 shrink-0 items-center justify-center rounded-full',
+                  row.tone === 'warn' ? 'bg-amber-100 text-amber-700' : 'bg-violet-50 text-violet-600',
+                )}
+              >
+                {row.icon}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium text-slate-800">{row.text}</span>
+                {row.detail && <span className="block truncate text-xs text-slate-500">{row.detail}</span>}
+              </span>
+              <ChevronRight size={15} className="shrink-0 text-slate-300 group-hover:text-slate-500" />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  )
+}
+
 export default function Dashboard() {
   const { me } = useMe()
-  const { data, reload } = useApi<SummaryResponse>('/summary')
+  const { data, error, reload } = useApi<SummaryResponse>('/summary')
   const { data: categoriesData } = useApi<{ categories: Category[] }>('/categories')
   const { data: merchantsData, reload: reloadMerchants } = useApi<{ merchants: Merchant[] }>('/merchants')
   const [adding, setAdding] = useState(false)
   const [setupHidden, setSetupHidden] = useState(() => localStorage.getItem(SETUP_DISMISSED_KEY) === '1')
-  if (!data) return null
+  // Ticked tasks stay visibly checked until the summary refetches (a repeating
+  // chore comes back with a new date rather than disappearing).
+  const [ticked, setTicked] = useState<Set<string>>(() => new Set())
+  useEffect(() => setTicked(new Set()), [data])
+
+  if (!data) return error ? <LoadError message={error} onRetry={reload} /> : <PageSkeleton cards={6} />
 
   const members = me.household.members
   const partner = members.find((m) => m.id !== me.user.id)
@@ -116,8 +274,10 @@ export default function Dashboard() {
   const iOwe = suggestion && suggestion.from_user_id === me.user.id
   const owedToMe = suggestion && suggestion.to_user_id === me.user.id
 
-  async function toggleTask(taskId: string): Promise<void> {
-    await api.patch(`/list-items/${taskId}`, { done: 1 })
+  async function toggleTask(task: SummaryResponse['my_tasks'][number]): Promise<void> {
+    setTicked((prev) => new Set(prev).add(task.id))
+    const result = await api.patch<{ next_due: string | null }>(`/list-items/${task.id}`, { done: 1 })
+    if (result.next_due) toast(`${task.text} — next ${fmtDay(result.next_due)}`, 'success')
     reload()
   }
 
@@ -138,6 +298,8 @@ export default function Dashboard() {
           <Plus size={15} /> Add expense
         </Button>
       </div>
+
+      <AttentionCard attention={data.attention} />
 
       {showSetup && (
         <SetupChecklist
@@ -187,26 +349,44 @@ export default function Dashboard() {
             color={me.user.color}
             className="mt-3"
           />
-          <p className="mt-2 text-xs text-slate-500">Yours alone — no questions asked.</p>
+          <p className="mt-2 text-xs text-slate-500">
+            {data.my_personal_allocated_cents > data.my_personal_spent_cents
+              ? `${fmtMoney(data.my_personal_allocated_cents - data.my_personal_spent_cents)} left — yours alone`
+              : data.my_personal_allocated_cents > 0
+                ? `${fmtMoney(data.my_personal_spent_cents - data.my_personal_allocated_cents)} over your own line`
+                : 'Yours alone — no questions asked.'}
+          </p>
         </Card>
 
         <Card>
           <CardTitle
             action={
-              <Link to="/transactions" className="flex items-center gap-1 text-xs font-medium text-violet-600 hover:underline">
-                Settle up <ArrowRight size={12} />
-              </Link>
+              partner ? (
+                <Link to="/transactions" className="flex items-center gap-1 text-xs font-medium text-violet-600 hover:underline">
+                  Settle up <ArrowRight size={12} />
+                </Link>
+              ) : undefined
             }
           >
             Between you two
           </CardTitle>
-          {suggestion && partner ? (
+          {!partner ? (
+            <Link to="/settings#partner" className="group flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-50 text-violet-600">
+                <UserPlus size={17} />
+              </span>
+              <span>
+                <span className="block text-sm font-medium group-hover:text-violet-700">Invite your partner</span>
+                <span className="block text-xs text-slate-500">Shared expenses and who-owes-whom start here.</span>
+              </span>
+            </Link>
+          ) : suggestion ? (
             <div className="flex items-center gap-3">
               <Avatar name={partner.name} color={partner.color} size={36} />
               <div>
                 <p className="font-semibold">
-                  {iOwe && `You owe ${partner.name} ${fmtMoney(suggestion.amount_cents)}`}
-                  {owedToMe && `${partner.name} owes you ${fmtMoney(suggestion.amount_cents)}`}
+                  {iOwe && `You owe ${partner.name.split(' ')[0]} ${fmtMoney(suggestion.amount_cents)}`}
+                  {owedToMe && `${partner.name.split(' ')[0]} owes you ${fmtMoney(suggestion.amount_cents)}`}
                 </p>
                 <p className="text-xs text-slate-500">Across everything you’ve split so far</p>
               </div>
@@ -294,17 +474,25 @@ export default function Dashboard() {
             <p className="text-sm text-slate-500">Nothing assigned to you. Enjoy it while it lasts.</p>
           ) : (
             <ul className="space-y-2">
-              {data.my_tasks.map((task) => (
-                <li key={task.id} className="flex items-center gap-2.5">
-                  <input
-                    type="checkbox"
-                    onChange={() => void toggleTask(task.id)}
-                    className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
-                  />
-                  <span className="flex-1 text-sm">{task.text}</span>
-                  {task.due_date && <Chip>{fmtDate(task.due_date)}</Chip>}
-                </li>
-              ))}
+              {data.my_tasks.map((task) => {
+                const due = task.due_date ? dueLabel(task.due_date) : null
+                return (
+                  <li key={`${task.id}-${task.due_date ?? ''}`} className="flex items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={ticked.has(task.id)}
+                      onChange={() => void toggleTask(task)}
+                      aria-label={`Done: ${task.text}`}
+                      className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                    />
+                    <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm">
+                      <span className="truncate">{task.text}</span>
+                      {task.repeat && <Repeat size={12} className="shrink-0 text-slate-400" aria-label="Repeats" />}
+                    </span>
+                    {due && <span className={cls('shrink-0 text-xs', DUE_TONE_CLASS[due.tone])}>{due.text}</span>}
+                  </li>
+                )
+              })}
             </ul>
           )}
         </Card>
@@ -330,7 +518,7 @@ export default function Dashboard() {
                     {payer && <Avatar name={payer.name} color={payer.color} size={26} />}
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{tx.description}</p>
-                      <p className="text-xs text-slate-500">{fmtDate(tx.date)}</p>
+                      <p className="text-xs text-slate-500">{fmtDay(tx.date)}</p>
                     </div>
                     <span className="text-sm font-semibold tabular-nums">{fmtMoney(tx.amount_cents)}</span>
                   </li>

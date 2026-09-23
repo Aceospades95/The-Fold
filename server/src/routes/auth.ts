@@ -14,7 +14,7 @@ import {
   verifyPassword,
 } from '../auth.js'
 import { MEMBER_PALETTE } from '@fold/shared'
-import { normalizeInviteCode, redeemInviteCode } from '../lib/merge.js'
+import { defaultHouseholdName, normalizeInviteCode, redeemInviteCode, refreshHouseholdName } from '../lib/merge.js'
 import { MEMBER_COLORS, badRequest, id, now } from '../lib/util.js'
 
 const signupBody = z.object({
@@ -182,14 +182,21 @@ export async function publicAuthRoutes(app: FastifyInstance): Promise<void> {
         .prepare('UPDATE invites SET used_by_user_id = ?, used_at = ? WHERE code = ?')
         .run(userId, now(), normalizeInviteCode(body.invite_code))
       seedPersonalDefaults(app.db, householdId, userId)
+      refreshHouseholdName(app.db, householdId)
     } else {
       const householdId = id()
-      const firstName = body.name.split(/\s+/)[0]
       app.db
         .prepare(
-          'INSERT INTO households (id, name, split_rule, custom_split, calendar_token, created_at) VALUES (?, ?, ?, NULL, ?, ?)',
+          'INSERT INTO households (id, name, name_custom, split_rule, custom_split, calendar_token, created_at) VALUES (?, ?, ?, ?, NULL, ?, ?)',
         )
-        .run(householdId, body.household_name ?? `${firstName}’s budget`, 'proportional', randomBytes(16).toString('hex'), now())
+        .run(
+          householdId,
+          body.household_name ?? defaultHouseholdName([body.name]),
+          body.household_name ? 1 : 0,
+          'proportional',
+          randomBytes(16).toString('hex'),
+          now(),
+        )
       app.db
         .prepare(
           'INSERT INTO users (id, household_id, name, email, password_hash, color, is_admin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',

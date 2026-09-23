@@ -179,6 +179,7 @@ export default function RecurringModal({
                 <button
                   onClick={() => void toggleActive(row)}
                   title={row.active === 1 ? 'Pause' : 'Resume'}
+                  aria-label={row.active === 1 ? `Pause ${row.description}` : `Resume ${row.description}`}
                   className={cls(
                     'h-2.5 w-2.5 shrink-0 rounded-full',
                     row.active === 1 ? 'bg-emerald-500' : 'bg-slate-300',
@@ -193,10 +194,10 @@ export default function RecurringModal({
                 </div>
                 {row.active === 0 && <Chip>paused</Chip>}
                 <span className="text-sm font-semibold tabular-nums">{fmtMoney(row.amount_cents)}</span>
-                <button onClick={() => setEditing(row)} className="hidden rounded p-1 text-slate-400 hover:bg-slate-100 group-hover:block">
+                <button onClick={() => setEditing(row)} aria-label={`Edit ${row.description}`} className="hidden rounded p-1 text-slate-400 hover:bg-slate-100 group-hover:block max-md:block">
                   <Pencil size={13} />
                 </button>
-                <button onClick={() => void remove(row)} className="hidden rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 group-hover:block">
+                <button onClick={() => void remove(row)} aria-label={`Stop ${row.description}`} className="hidden rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 group-hover:block max-md:block">
                   <Trash2 size={13} />
                 </button>
               </li>

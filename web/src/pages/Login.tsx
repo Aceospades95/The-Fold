@@ -29,6 +29,18 @@ export default function Login({
       if (tab === 'signin') {
         await api.post('/auth/login', { email, password })
       } else {
+        // A partner signing up without their code is the classic mistake — they
+        // end up in a separate budget. One soft check before it happens.
+        if (
+          hasUsers &&
+          !inviteCode.trim() &&
+          !confirm(
+            'Create a separate budget, not linked to anyone? If your partner gave you an invite code, cancel and enter it — that links your accounts into one household.',
+          )
+        ) {
+          setBusy(false)
+          return
+        }
         await api.post('/signup', {
           name,
           email,

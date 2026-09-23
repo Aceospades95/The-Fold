@@ -1,16 +1,21 @@
 import { useEffect, useState } from 'react'
-import type { ListItemRow, ListRow, ListType } from '@fold/shared'
-import { Brush, CalendarDays, Link2, List as ListIcon, Plus, ShoppingCart, SquareCheck, Star, Trash2, UserRound } from 'lucide-react'
+import type { ListItemRow, ListRepeat, ListRow, ListType } from '@fold/shared'
+import { LIST_REPEAT_LABELS } from '@fold/shared'
+import { Brush, Link2, List as ListIcon, Plus, Repeat, ShoppingCart, SquareCheck, Star, Trash2, UserRound } from 'lucide-react'
 import { api, useApi } from '../api'
 import { useMe } from '../App'
-import { fmtDate, fmtMoney } from '../format'
-import { Avatar, Button, Card, ErrorNote, Field, Modal, MoneyInput, Select, TextInput, cls } from '../ui'
+import { DUE_TONE_CLASS, dueLabel, fmtDay, fmtMoney } from '../format'
+import { toast } from '../toast'
+import { Avatar, Button, Card, ErrorNote, Field, LoadError, Modal, MoneyInput, PageSkeleton, Select, TextInput, cls } from '../ui'
 
 function TypeIcon({ type, size = 15 }: { type: ListType; size?: number }) {
   const Icon =
     type === 'todo' ? SquareCheck : type === 'chores' ? Brush : type === 'grocery' ? ShoppingCart : type === 'wishlist' ? Star : ListIcon
   return <Icon size={size} className="shrink-0 text-slate-400" />
 }
+
+/** Groceries and wishes are one-offs; anything else can come back on a schedule. */
+const REPEATABLE: ListType[] = ['todo', 'chores', 'custom']
 
 function NewListModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState('')
@@ -53,19 +58,22 @@ function NewListModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
 
 function ItemEditor({
   item,
-  isWishlist,
+  listType,
   onClose,
   onSaved,
 }: {
   item: ListItemRow
-  isWishlist: boolean
+  listType: ListType
   onClose: () => void
   onSaved: () => void
 }) {
   const { me } = useMe()
+  const isWishlist = listType === 'wishlist'
+  const repeatable = REPEATABLE.includes(listType)
   const [text, setText] = useState(item.text)
   const [assignee, setAssignee] = useState(item.assignee_user_id ?? '')
   const [due, setDue] = useState(item.due_date ?? '')
+  const [repeat, setRepeat] = useState<ListRepeat | ''>(item.repeat ?? '')
   const [amount, setAmount] = useState<number | null>(item.amount_cents)
   const [url, setUrl] = useState(item.url ?? '')
   const [notes, setNotes] = useState(item.notes ?? '')
@@ -77,6 +85,7 @@ function ItemEditor({
         text: text.trim(),
         assignee_user_id: assignee || null,
         due_date: due || null,
+        repeat: repeatable && repeat ? repeat : null,
         amount_cents: amount,
         url: url || null,
         notes: notes || null,
@@ -88,8 +97,13 @@ function ItemEditor({
   }
 
   async function remove(): Promise<void> {
-    await api.delete(`/list-items/${item.id}`)
-    onSaved()
+    if (!confirm(`Delete "${item.text}"?`)) return
+    try {
+      await api.delete(`/list-items/${item.id}`)
+      onSaved()
+    } catch (err) {
+      setError((err as Error).message)
+    }
   }
 
   return (
@@ -111,6 +125,19 @@ function ItemEditor({
             <TextInput type="date" value={due} onChange={(e) => setDue(e.target.value)} />
           </Field>
         </div>
+        {repeatable && (
+          <Field
+            label="Repeats"
+            hint={repeat ? 'Ticking it off moves the due date forward instead of finishing it.' : undefined}
+          >
+            <Select value={repeat} onChange={(e) => setRepeat(e.target.value as ListRepeat | '')}>
+              <option value="">Never</option>
+              {(Object.keys(LIST_REPEAT_LABELS) as ListRepeat[]).map((value) => (
+                <option key={value} value={value}>{LIST_REPEAT_LABELS[value]}</option>
+              ))}
+            </Select>
+          </Field>
+        )}
         {isWishlist && (
           <div className="grid grid-cols-2 gap-3">
             <Field label="Price">
@@ -124,6 +151,9 @@ function ItemEditor({
         <Field label="Notes">
           <TextInput value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Wait for a sale…" />
         </Field>
+        {item.repeat && item.completed_at && (
+          <p className="text-xs text-slate-500">Last done {fmtDay(item.completed_at.slice(0, 10))}.</p>
+        )}
         <ErrorNote message={error} />
         <div className="flex items-center justify-between">
           <Button variant="danger" onClick={() => void remove()}>
@@ -141,7 +171,7 @@ function ItemEditor({
 
 export default function Lists() {
   const { me } = useMe()
-  const { data, reload } = useApi<{ lists: ListRow[] }>('/lists')
+  const { data, error, reload } = useApi<{ lists: ListRow[] }>('/lists')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [newItem, setNewItem] = useState('')
@@ -154,6 +184,8 @@ export default function Lists() {
     if (!selectedId && lists.length > 0) setSelectedId(lists[0].id)
   }, [lists, selectedId])
 
+  if (!data) return error ? <LoadError message={error} onRetry={reload} /> : <PageSkeleton cards={2} />
+
   async function addItem(): Promise<void> {
     if (!selected || !newItem.trim()) return
     await api.post(`/lists/${selected.id}/items`, { text: newItem.trim() })
@@ -162,12 +194,15 @@ export default function Lists() {
   }
 
   async function toggle(item: ListItemRow): Promise<void> {
-    await api.patch(`/list-items/${item.id}`, { done: item.done === 1 ? 0 : 1 })
+    const result = await api.patch<{ next_due: string | null }>(`/list-items/${item.id}`, { done: item.done === 1 ? 0 : 1 })
+    if (result.next_due) toast(`${item.text} — next ${fmtDay(result.next_due)}`, 'success')
     reload()
   }
 
   async function clearDone(): Promise<void> {
     if (!selected) return
+    const count = selected.items.filter((i) => i.done === 1).length
+    if (!confirm(`Remove ${count} finished ${count === 1 ? 'item' : 'items'} from "${selected.name}"?`)) return
     await api.post(`/lists/${selected.id}/clear-done`)
     reload()
   }
@@ -238,7 +273,7 @@ export default function Lists() {
                     Clear {doneCount} done
                   </Button>
                 )}
-                <Button variant="ghost" onClick={() => void removeList()} className="text-xs text-red-500">
+                <Button variant="ghost" onClick={() => void removeList()} className="text-xs text-red-500" aria-label="Delete list">
                   <Trash2 size={13} />
                 </Button>
               </div>
@@ -250,6 +285,7 @@ export default function Lists() {
                 onChange={(e) => setNewItem(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && void addItem()}
                 placeholder={isWishlist ? 'Add a wish…' : 'Add an item…'}
+                aria-label="New item"
                 className="flex-1"
               />
               <Button onClick={() => void addItem()} disabled={!newItem.trim()}>
@@ -263,35 +299,40 @@ export default function Lists() {
               <ul className="divide-y divide-slate-100">
                 {selected.items.map((item) => {
                   const assignee = me.household.members.find((m) => m.id === item.assignee_user_id)
+                  const due = item.due_date && item.done === 0 ? dueLabel(item.due_date) : null
                   return (
                     <li key={item.id} className="flex items-center gap-3 py-2">
                       <input
                         type="checkbox"
                         checked={item.done === 1}
                         onChange={() => void toggle(item)}
+                        aria-label={`Done: ${item.text}`}
                         className="h-4 w-4 shrink-0 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
                       />
                       <button onClick={() => setEditing(item)} className="min-w-0 flex-1 text-left">
-                        <span className={cls('text-sm', item.done === 1 && 'text-slate-400 line-through')}>{item.text}</span>
+                        <span className={cls('flex items-center gap-1.5 text-sm', item.done === 1 && 'text-slate-400 line-through')}>
+                          <span className="truncate">{item.text}</span>
+                          {item.repeat && (
+                            <span title={LIST_REPEAT_LABELS[item.repeat]} className="inline-flex shrink-0 items-center text-slate-400">
+                              <Repeat size={12} aria-label={LIST_REPEAT_LABELS[item.repeat]} />
+                            </span>
+                          )}
+                        </span>
                         {item.notes && <span className="block truncate text-xs text-slate-400">{item.notes}</span>}
                       </button>
                       {item.url && (
-                        <a href={item.url} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-violet-600">
+                        <a href={item.url} target="_blank" rel="noreferrer" aria-label="Open link" className="text-slate-400 hover:text-violet-600">
                           <Link2 size={14} />
                         </a>
                       )}
                       {item.amount_cents != null && (
                         <span className="text-xs font-medium tabular-nums text-slate-500">{fmtMoney(item.amount_cents)}</span>
                       )}
-                      {item.due_date && (
-                        <span className="inline-flex items-center gap-1 text-xs text-slate-500">
-                          <CalendarDays size={12} /> {fmtDate(item.due_date)}
-                        </span>
-                      )}
+                      {due && <span className={cls('shrink-0 text-xs', DUE_TONE_CLASS[due.tone])}>{due.text}</span>}
                       {assignee ? (
                         <Avatar name={assignee.name} color={assignee.color} size={22} />
                       ) : (
-                        <button onClick={() => setEditing(item)} title="Assign" className="text-slate-300 hover:text-slate-500">
+                        <button onClick={() => setEditing(item)} title="Assign" aria-label="Assign" className="text-slate-300 hover:text-slate-500">
                           <UserRound size={16} />
                         </button>
                       )}
@@ -320,7 +361,7 @@ export default function Lists() {
       {editing && selected && (
         <ItemEditor
           item={editing}
-          isWishlist={isWishlist}
+          listType={selected.type}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null)
